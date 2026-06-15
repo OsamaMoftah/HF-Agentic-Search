@@ -27,7 +27,7 @@ checks schemas and samples, then returns a ranked shortlist with transparent rea
 is built for engineers who care less about popularity and more about whether the data can
 actually support the model or evaluation they are trying to ship.
 
-- **Submission Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search
+- **Submission Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search-Live
 - **Working staging Space:** https://huggingface.co/spaces/sammoftah/HF-Agentic-Search
 - **Source:** https://github.com/OsamaMoftah/HF-Agentic-Search
 - **Demo video:** `PENDING: add a public demo-video URL before final validation`
