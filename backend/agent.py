@@ -38,6 +38,11 @@ _MODALITIES = {
     "text": ("text", "document", "summarization", "translation", "intent", "chat"),
 }
 _LABEL_TERMS = {"label", "labels", "class", "classes", "intent", "category", "target"}
+_DIRECT_LABEL_FIELDS = {
+    "label", "labels", "intent", "category", "class", "target",
+    "detected_intent", "intent_label", "class_label",
+}
+_PROXY_LABEL_FIELDS = {"type", "queue", "topic", "department", "route", "routing"}
 _TASK_TYPES = {
     "intent classification", "classification", "summarization", "translation",
     "question answering", "retrieval", "fine-tuning", "pretraining", "dataset discovery",
@@ -276,10 +281,25 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         for key in row
     }
     available_fields = set(fields) | sample_fields
-    requested = set(profile["domain_keywords"])
+    requested = {
+        word for word in profile["domain_keywords"]
+        if word not in {"english", "labels", "label", "compact", "classifier", "dataset", "data"}
+    }
     matched_keywords = sorted(word for word in requested if word in blob)
 
-    relevance = min(35, round(35 * len(matched_keywords) / max(3, len(requested))))
+    lexical_match = min(22, round(22 * len(matched_keywords) / max(2, len(requested))))
+    dataset_name = dataset.get("id", "").lower().replace("_", " ").replace("-", " ")
+    task_type = profile["task_type"]
+    task_terms = {
+        "classification": ("classification", "intent", "classify"),
+        "intent classification": ("intent", "classification"),
+        "summarization": ("summarization", "summary"),
+        "translation": ("translation", "translate"),
+        "question answering": ("question answering", "qa"),
+        "retrieval": ("retrieval", "search"),
+    }.get(task_type, (task_type,))
+    task_match = 13 if any(term in dataset_name for term in task_terms) else 0
+    relevance = lexical_match + task_match
     modality_values = dataset.get("modalities", [])
     modality = 15 if _contains_any(modality_values, profile["modalities"]) else 0
     if not modality_values:
@@ -292,33 +312,84 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         language = 4
 
     required_fields = profile["required_fields"]
-    matched_fields = [
-        requirement
-        for requirement in required_fields
-        if any(requirement in field for field in available_fields)
-        or requirement in blob
-    ]
-    schema = 15 if not required_fields else round(15 * len(matched_fields) / len(required_fields))
-    if required_fields and not available_fields:
-        schema = min(schema, 5)
+    direct_label_fields = sorted(
+        field for field in available_fields
+        if field in _DIRECT_LABEL_FIELDS
+        or any(token in field for token in ("intent", "label", "category", "class"))
+    )
+    proxy_label_fields = sorted(field for field in available_fields if field in _PROXY_LABEL_FIELDS)
+    sample_text = " ".join(
+        str(value)
+        for row in dataset.get("sample_rows", [])
+        if isinstance(row, dict)
+        for value in row.values()
+    ).lower()
+    embedded_label = bool(
+        required_fields
+        and ("output:" in sample_text or "intent categories" in sample_text)
+    )
+    matched_fields = []
+    schema_evidence = "not-required"
+    if not required_fields:
+        schema = 15
+    elif direct_label_fields:
+        schema = 15
+        matched_fields = direct_label_fields
+        schema_evidence = "direct"
+    elif proxy_label_fields:
+        schema = 8
+        matched_fields = proxy_label_fields
+        schema_evidence = "proxy"
+    elif embedded_label:
+        schema = 5
+        matched_fields = ["embedded instruction output"]
+        schema_evidence = "embedded"
+    else:
+        schema = 0
+        schema_evidence = "missing" if available_fields else "unknown"
 
     license_value = dataset.get("license", "")
     permissive = {"apache-2.0", "mit", "cc-by-4.0", "cc0-1.0", "odc-by"}
     license_score = 10 if license_value in permissive else 5 if license_value else 0
     documentation = 5 if dataset.get("card_complete") else 2 if dataset.get("description") else 0
-    popularity = min(
-        5,
-        round(math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 20)),
-    )
+    num_examples = int(dataset.get("num_examples") or 0)
+    if num_examples >= 10_000:
+        popularity = 5
+    elif num_examples >= 1_000:
+        popularity = 4
+    elif num_examples >= 100:
+        popularity = 3
+    elif num_examples > 0:
+        popularity = 1
+    else:
+        popularity = min(
+            3,
+            round(math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 20)),
+        )
+    sample_size_adjustment = 0
+    sample_size_check = "pass"
+    if "classification" in profile["task_type"] and num_examples:
+        if num_examples < 100:
+            sample_size_adjustment = -12
+            sample_size_check = "review"
+        elif num_examples < 500:
+            sample_size_adjustment = -4
+            sample_size_check = "review"
     accessibility = 5 if dataset.get("accessible") and not dataset.get("gated") else 0
-    total = relevance + modality + language + schema + license_score + documentation + popularity + accessibility
+    total = max(
+        0,
+        relevance + modality + language + schema + license_score
+        + documentation + popularity + accessibility + sample_size_adjustment,
+    )
 
     checks = {
         "modality": "pass" if modality == 15 else "unknown" if not modality_values else "fail",
         "language": "pass" if language == 10 else "unknown" if not language_values else "fail",
-        "required_fields": "pass" if not required_fields or len(matched_fields) == len(required_fields)
-        else "unknown" if not available_fields else "fail",
+        "required_fields": "pass" if schema_evidence in {"not-required", "direct"}
+        else "review" if schema_evidence in {"proxy", "embedded"}
+        else "unknown" if schema_evidence == "unknown" else "fail",
         "license": "pass" if license_score == 10 else "unknown" if not license_value else "review",
+        "sample_size": sample_size_check if num_examples else "unknown",
         "accessible": "pass" if accessibility == 5 else "fail",
     }
     rejection_reasons = []
@@ -336,12 +407,19 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         rejection_reasons.append(
             f"Languages {language_values} do not match requested {profile['languages']}."
         )
-    status = "rejected" if rejection_reasons else "recommended" if total >= 72 else "conditional"
+    status = "rejected" if rejection_reasons else "recommended" if (
+        total >= 70
+        and schema_evidence in {"not-required", "direct"}
+        and sample_size_check == "pass"
+    ) else "conditional"
     evidence = [
         f"Matched project terms: {', '.join(matched_keywords) or 'none verified'}",
         f"Modalities: {', '.join(modality_values) or 'not declared'}",
         f"Languages: {', '.join(language_values) or 'not declared'}",
         f"Features: {', '.join(sorted(available_fields)[:10]) or 'viewer schema unavailable'}",
+        f"Target evidence: {schema_evidence}"
+        + (f" ({', '.join(matched_fields)})" if matched_fields else ""),
+        f"Examples: {num_examples or 'not reported'}",
         f"License: {license_value or 'not declared'}",
     ]
     strength = (
@@ -353,6 +431,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         (
             label for key, label in (
                 ("required_fields", "Required schema fields need manual confirmation."),
+                ("sample_size", "The inspected dataset is too small for reliable classifier training."),
                 ("license", "License needs manual review."),
                 ("language", "Language coverage is not declared."),
             )
@@ -382,9 +461,11 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
             "license": license_score,
             "documentation": documentation,
             "adoption": popularity,
+            "sample_size_adjustment": sample_size_adjustment,
             "accessibility": accessibility,
         },
         "checks": checks,
+        "schema_evidence": schema_evidence,
         "evidence": evidence,
         "rejection_reasons": rejection_reasons,
         "strength": strength,
@@ -531,9 +612,9 @@ def _public_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
         "id", "author", "description", "downloads", "likes", "tags",
         "task_categories", "languages", "license", "size_category", "formats",
         "modalities", "configs", "splits", "features", "sample_rows", "hub_url",
-        "accessible", "inspection_error", "card_complete", "score", "relevance",
+        "accessible", "inspection_error", "card_complete", "num_examples", "score", "relevance",
         "quality", "status", "score_breakdown", "checks", "evidence",
-        "rejection_reasons", "strength", "weakness", "recommendation",
+        "schema_evidence", "rejection_reasons", "strength", "weakness", "recommendation",
     }
     return {key: value for key, value in dataset.items() if key in allowed}
 

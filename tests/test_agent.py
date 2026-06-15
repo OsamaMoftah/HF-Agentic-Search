@@ -27,6 +27,7 @@ def dataset(**overrides):
         "gated": False,
         "inspection_error": "",
         "card_complete": True,
+        "num_examples": 5000,
     }
     return {**base, **overrides}
 
@@ -72,6 +73,76 @@ class AgentTests(unittest.TestCase):
         self.assertGreater(relevant["score"], unlabeled["score"])
         self.assertEqual(relevant["status"], "recommended")
         self.assertEqual(audio["status"], "rejected")
+
+    def test_description_does_not_fake_a_required_label_column(self):
+        profile, _ = parse_task(
+            "English customer support intent data with labels for a classifier",
+            use_llm=False,
+        )
+        misleading = score_dataset(
+            profile,
+            dataset(
+                description="A labeled customer support dataset with many labels.",
+                features=["text", "response"],
+                sample_rows=[{"text": "hello", "response": "hi"}],
+            ),
+        )
+        self.assertEqual(misleading["checks"]["required_fields"], "fail")
+        self.assertEqual(misleading["status"], "rejected")
+
+    def test_direct_intent_schema_beats_proxy_ticket_routing(self):
+        profile, _ = parse_task(
+            "English customer support intent data with labels for a classifier",
+            use_llm=False,
+        )
+        direct = score_dataset(
+            profile,
+            dataset(
+                id="example/customer-support-intent-classification",
+                features=["query", "intent"],
+                sample_rows=[{"query": "refund please", "intent": "get_refund"}],
+                num_examples=800,
+            ),
+        )
+        proxy = score_dataset(
+            profile,
+            dataset(
+                id="example/customer-support-tickets",
+                features=["subject", "body", "type", "queue"],
+                sample_rows=[{"subject": "help", "body": "refund", "type": "Request", "queue": "Billing"}],
+                num_examples=60_000,
+            ),
+        )
+        self.assertEqual(direct["schema_evidence"], "direct")
+        self.assertEqual(proxy["schema_evidence"], "proxy")
+        self.assertGreater(direct["score"], proxy["score"])
+
+    def test_tiny_classifier_dataset_is_not_the_top_recommendation(self):
+        profile, _ = parse_task(
+            "English customer support intent data with labels for a classifier",
+            use_llm=False,
+        )
+        tiny = score_dataset(
+            profile,
+            dataset(
+                id="example/customer-support-intent-classification",
+                features=["query", "intent"],
+                sample_rows=[{"query": "refund please", "intent": "get_refund"}],
+                num_examples=41,
+            ),
+        )
+        training_sized = score_dataset(
+            profile,
+            dataset(
+                id="example/customer-support-intent-data",
+                features=["instruction", "intent", "response"],
+                sample_rows=[{"instruction": "refund please", "intent": "get_refund"}],
+                num_examples=26_872,
+            ),
+        )
+        self.assertEqual(tiny["checks"]["sample_size"], "review")
+        self.assertEqual(tiny["status"], "conditional")
+        self.assertGreater(training_sized["score"], tiny["score"])
 
     def test_queries_are_short_and_hub_friendly(self):
         profile, _ = parse_task(

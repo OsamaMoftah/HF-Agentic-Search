@@ -90,6 +90,7 @@ def inspect_dataset(dataset_id: str, base: dict[str, Any] | None = None) -> dict
             "sample_rows": [],
             "files": [],
             "card_complete": False,
+            "num_examples": 0,
         }
     )
     try:
@@ -119,10 +120,14 @@ def inspect_dataset(dataset_id: str, base: dict[str, Any] | None = None) -> dict
         dataset_info = viewer.get("dataset_info", {})
         for config_name, config_data in dataset_info.items():
             evidence["configs"].append(config_name)
-            for split in config_data.get("splits", []) or []:
-                split_name = split.get("name")
+            splits = config_data.get("splits", {}) or {}
+            split_items = splits.values() if isinstance(splits, dict) else splits
+            for split in split_items:
+                split_name = split.get("name") if isinstance(split, dict) else None
                 if split_name and split_name not in evidence["splits"]:
                     evidence["splits"].append(split_name)
+                if isinstance(split, dict):
+                    evidence["num_examples"] += int(split.get("num_examples") or 0)
             features = config_data.get("features") or {}
             if isinstance(features, dict):
                 feature_names = list(features)
@@ -152,6 +157,11 @@ def inspect_dataset(dataset_id: str, base: dict[str, Any] | None = None) -> dict
             evidence["sample_rows"] = [
                 item.get("row", {}) for item in (rows.get("rows", []) or [])[:3]
             ]
+            row_features = rows.get("features") or []
+            for feature in row_features:
+                name = feature.get("name") if isinstance(feature, dict) else None
+                if name and name not in evidence["features"]:
+                    evidence["features"].append(name)
             if not evidence["features"] and evidence["sample_rows"]:
                 evidence["features"] = list(evidence["sample_rows"][0])
         except Exception:
