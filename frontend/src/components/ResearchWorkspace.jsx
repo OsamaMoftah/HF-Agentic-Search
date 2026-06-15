@@ -84,10 +84,10 @@ export default function ResearchWorkspace() {
         <section className="evidence-panel">
           <div className="panel-heading">
             <div>
-              <span className="section-index">Evidence map</span>
+              <span className="section-index">Decision board</span>
               <h2>{state.datasets.length ? `${state.datasets.length} inspected candidates` : 'How the search becomes evidence'}</h2>
             </div>
-            <span className="panel-count">{state.nodes?.length || 0}</span>
+            <span className="panel-count">{state.datasets.length}</span>
           </div>
           <Canvas />
         </section>
