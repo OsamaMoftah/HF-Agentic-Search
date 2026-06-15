@@ -24,7 +24,8 @@ from several angles, inspects candidate metadata and Dataset Viewer evidence, te
 constraints, and returns a ranked shortlist with visible reasons. It is designed to be honest
 about what it could verify and what still requires human review.
 
-- **Live Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search
+- **Submission Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search
+- **Working staging Space:** https://huggingface.co/spaces/sammoftah/HF-Agentic-Search
 - **Source:** https://github.com/OsamaMoftah/HF-Agentic-Search
 - **Demo video:** `TODO: replace with the public demo-video URL before final validation`
 - **Social post:** `TODO: replace with the public social-post URL before final validation`
