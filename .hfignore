@@ -1,0 +1,14 @@
+/.git/
+/.pytest_cache/
+/__pycache__/
+**/__pycache__/
+
+/frontend/node_modules/
+/frontend/.ruff_cache/
+/node_modules/
+
+/frontend/src/
+/frontend/package-lock.json
+/frontend/package.json
+/frontend/index.html
+/frontend/vite.config.js
