@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useGame } from '../GameProvider.jsx';
-import Canvas from './Canvas.jsx';
+import CandidateBoard from './CandidateBoard.jsx';
 
 const STEPS = [
   { type: 'plan', label: 'Understand', detail: 'Turn the brief into explicit requirements' },
@@ -89,7 +89,7 @@ export default function ResearchWorkspace() {
             </div>
             <span className="panel-count">{state.datasets.length}</span>
           </div>
-          <Canvas />
+          <CandidateBoard />
         </section>
 
         <aside className="check-panel">

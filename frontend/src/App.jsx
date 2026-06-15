@@ -28,7 +28,7 @@ function Workspace() {
       <section className="hero">
         <div className="hero-copy">
           <span className="section-index">Agentic dataset research</span>
-          <h1>A new way to search for datasets.</h1>
+          <h1>A new way to search for Hugging Face datasets.</h1>
           <p>
             Describe the model or evaluation you want to build. The agent turns that brief
             into testable data requirements, searches the Hub from several angles, inspects

@@ -19,18 +19,19 @@ models:
 
 # HF Agentic Search
 
-Finding a dataset is easy. Deciding whether it actually fits a project is not.
+Finding a dataset is easy. Deciding whether it actually fits an ML project is not.
 
-HF Agentic Search turns a project brief into a research plan, searches the Hugging Face Hub
-from several angles, inspects candidate metadata and Dataset Viewer evidence, tests explicit
-constraints, and returns a ranked shortlist with visible reasons. It is designed to be honest
-about what it could verify and what still requires human review.
+HF Agentic Search turns a plain-language project brief into a small research loop: it plans
+targeted Hugging Face Hub searches, inspects candidate cards and Dataset Viewer evidence,
+checks schemas and samples, then returns a ranked shortlist with transparent reasons. The app
+is built for engineers who care less about popularity and more about whether the data can
+actually support the model or evaluation they are trying to ship.
 
 - **Submission Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search
 - **Working staging Space:** https://huggingface.co/spaces/sammoftah/HF-Agentic-Search
 - **Source:** https://github.com/OsamaMoftah/HF-Agentic-Search
-- **Demo video:** `TODO: add a public demo-video URL before final validation`
-- **Social post:** `TODO: add the public social-media post URL before final validation`
+- **Demo video:** `PENDING: add a public demo-video URL before final validation`
+- **Social post:** `PENDING: add the public social-media post URL before final validation`
 - **Team usernames:** `sammoftah`
 
 ## Why it is agentic
@@ -119,17 +120,16 @@ cd frontend && npm run build
 
 ## Build Small submission
 
-Submitted to the **Backyard AI** track and targeting **Best Agent**, **Tiny Titan**, and
-**Off Brand**. The custom interface is served through Gradio rather than default Gradio
-components.
+Submitted to the **Backyard AI** track and positioned for **Best Agent**, **Tiny Titan**, and
+**Off Brand**. The app runs as a Gradio Space inside the `build-small-hackathon` organization,
+with a custom React interface served through `gr.Server`.
 
-Final README checklist from the hackathon email:
+Submission readiness:
 
-- Tags are present in the YAML block: `track:backyard`, `sponsor:openai`, `achievement:offbrand`.
-- The app runs as a Gradio Space inside `build-small-hackathon`.
-- The declared model is `HuggingFaceTB/SmolLM2-360M-Instruct` at 360M parameters, below the 32B limit.
+- YAML tags are present: `track:backyard`, `sponsor:openai`, `achievement:offbrand`.
+- The model is `HuggingFaceTB/SmolLM2-360M-Instruct` at 360M parameters, well below the 32B limit.
 - Team username is listed above.
-- Demo video and social-post URLs must be replaced with real public links before running the final validator.
+- Demo video and social-post URLs are the remaining fields to replace before the final validator run.
 
-This project was designed, implemented, tested, and prepared for deployment with OpenAI Codex.
-Codex-attributed commits are available in the linked public GitHub repository.
+Built, tested, deployed, and prepared for submission with OpenAI Codex. Codex-attributed commits
+are available in the linked public GitHub repository.

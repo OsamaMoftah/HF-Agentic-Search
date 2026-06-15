@@ -43,7 +43,7 @@ function compactEvidence(dataset) {
   return features ? `${features} · ${examples}` : examples;
 }
 
-export default function Canvas() {
+export default function CandidateBoard() {
   const { state, selected, selectDataset } = useGame();
   const datasets = state.datasets || [];
   const counts = LANES.map((lane) => ({
