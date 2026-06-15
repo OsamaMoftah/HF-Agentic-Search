@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+frontend/node_modules/
+.venv/
+.pytest_cache/
+.ruff_cache/
