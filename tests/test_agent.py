@@ -198,7 +198,8 @@ class AgentTests(unittest.TestCase):
         queries = generate_queries("unused", profile)
         self.assertIn("customer support intent", queries)
         self.assertIn("customer support", queries)
-        self.assertTrue(all(len(query.split()) <= 3 for query in queries))
+        self.assertIn("intent dataset", queries)
+        self.assertTrue(all(len(query.split()) <= 4 for query in queries))
 
     def test_task_specific_profiles_and_queries(self):
         summary, _ = parse_task(
@@ -397,6 +398,42 @@ class AgentTests(unittest.TestCase):
         ):
             weave("Climate question-answer pairs for retrieval")
         self.assertIn(niche["id"], inspected_ids)
+
+    @patch("backend.agent._llm", return_value=None)
+    def test_deep_search_inspects_beyond_first_five_results_per_angle(self, _mock_llm):
+        first_batch = [dataset(id=f"broad/{index}") for index in range(12)]
+        gem = dataset(
+            id="niche/deep-climate-qa",
+            description="Climate science question answering.",
+            features=["question", "answer"],
+            sample_rows=[{"question": "How does climate affect rainfall?", "answer": "It changes patterns."}],
+        )
+        second_batch = [dataset(id=f"niche/filler-{index}") for index in range(7)] + [gem]
+
+        search_call = 0
+
+        def fake_search(_query, limit=35):
+            nonlocal search_call
+            search_call += 1
+            return first_batch if search_call == 1 else second_batch
+
+        inspected_ids = []
+
+        def fake_inspect(dataset_id, base):
+            inspected_ids.append(dataset_id)
+            return base
+
+        with (
+            patch("backend.agent.search_datasets", side_effect=fake_search),
+            patch("backend.agent.inspect_dataset", side_effect=fake_inspect),
+        ):
+            events = list(weave_events("Climate science question-answer pairs for retrieval"))
+
+        self.assertIn(gem["id"], inspected_ids)
+        self.assertTrue(any(
+            event["type"] == "search" and event.get("query") == "deep candidate pool"
+            for event in events
+        ))
 
 
 if __name__ == "__main__":

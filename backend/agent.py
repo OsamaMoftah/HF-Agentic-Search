@@ -323,22 +323,33 @@ def generate_queries(task: str, profile: dict[str, Any]) -> list[str]:
         if code in profile["languages"] and name != "multilingual"
     ]
     domain = terms[:2]
+    field_terms = [field for field in profile["required_fields"] if field not in {"text", "document", "source", "target"}]
     queries = []
     if domain:
         task_for_domain = primary_task if len(domain) + len(primary_task.split()) <= 3 else compact_task
         queries.append(" ".join(domain + [task_for_domain]))
         queries.append(" ".join([domain[0], compact_task]))
+        queries.append(" ".join(domain + ["dataset"]))
     if language_names:
         queries.append(" ".join([language_names[0], compact_task]))
     if language_names and domain:
         queries.append(" ".join([language_names[0], domain[0]]))
+        queries.append(" ".join([language_names[0], domain[0], "dataset"]))
     elif len(language_names) >= 2:
         queries.append(" ".join(language_names[:2] + [compact_task]))
     if domain and {"question", "answer"}.issubset(profile["required_fields"]):
         queries.append(f"{domain[0]} question")
+        queries.append(f"{domain[0]} qa")
+        queries.append(" ".join(domain + ["qa"]))
+    if domain and field_terms:
+        queries.append(" ".join(domain[:1] + field_terms[:2]))
     if task_type == "automatic speech recognition":
         queries.append("speech transcription")
         queries.append("librispeech")
+    if task_type == "intent classification":
+        queries.append("intent dataset")
+        if domain:
+            queries.append(f"{domain[0]} intent")
     if domain:
         queries.append(" ".join(domain))
     queries.append(primary_task)
@@ -349,7 +360,7 @@ def generate_queries(task: str, profile: dict[str, Any]) -> list[str]:
         normalized = re.sub(r"\s+", " ", query).strip()
         if normalized and normalized not in cleaned:
             cleaned.append(normalized)
-    return cleaned[:5] or [" ".join(_keywords(task)[:4])]
+    return cleaned[:9] or [" ".join(_keywords(task)[:4])]
 
 
 def _text_blob(dataset: dict[str, Any]) -> str:
@@ -365,14 +376,15 @@ def _text_blob(dataset: dict[str, Any]) -> str:
 
 def _pre_score(profile: dict[str, Any], dataset: dict[str, Any]) -> float:
     blob = _text_blob(dataset)
-    keywords = set(profile["domain_keywords"])
+    keywords = set(_domain_terms(profile) or profile["domain_keywords"])
     overlap = sum(1 for word in keywords if word in blob)
     modality_matches = sum(1 for value in profile["modalities"] if value in dataset.get("modalities", []))
     language_matches = sum(1 for value in profile["languages"] if value in dataset.get("languages", []))
     task_terms = _TASK_ALIASES.get(profile["task_type"], (profile["task_type"],))
     task_match = sum(1 for term in task_terms if term in blob)
-    popularity = min(2, math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 10))
-    return overlap * 8 + task_match * 10 + modality_matches * 8 + language_matches * 8 + popularity
+    schema_hint = sum(1 for field in profile["required_fields"] if field in blob)
+    popularity = min(1.5, math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 10) / 2)
+    return overlap * 10 + task_match * 10 + schema_hint * 4 + modality_matches * 8 + language_matches * 8 + popularity
 
 
 def _contains_any(values: list[str], expected: list[str]) -> bool:
@@ -737,7 +749,7 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
     collected: dict[str, dict[str, Any]] = {}
     search_batches: list[list[str]] = []
     for query in queries:
-        found = search_datasets(query, limit=20)
+        found = search_datasets(query, limit=35)
         search_batches.append([dataset["id"] for dataset in found])
         for dataset in found:
             current = collected.get(dataset["id"])
@@ -751,7 +763,7 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
             "message": f"Searched “{query}” and found {len(found)} candidates.",
         }
 
-    inspection_limit = max(max_datasets * 2, 16)
+    inspection_limit = max(max_datasets * 4, 28)
     global_ranked = sorted(
         collected.values(),
         key=lambda dataset: _pre_score(profile, dataset),
@@ -759,7 +771,7 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
     )
     diversified_ids: list[str] = []
     diversified_seen: set[str] = set()
-    for position in range(5):
+    for position in range(8):
         for batch in search_batches:
             if position >= len(batch):
                 continue
@@ -775,6 +787,13 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
         for dataset_id in diversified_ids[:inspection_limit]
         if dataset_id in collected
     ]
+    yield {
+        "type": "search",
+        "query": "deep candidate pool",
+        "found": len(pre_ranked),
+        "unique": len(collected),
+        "message": f"Prepared {len(pre_ranked)} diverse candidates for evidence inspection.",
+    }
     inspected: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(pre_ranked)))) as pool:
         futures = {

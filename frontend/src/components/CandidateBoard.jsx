@@ -12,11 +12,6 @@ const LANES = [
     title: 'Review gaps',
     description: 'Useful, but one or more checks need attention',
   },
-  {
-    status: 'rejected',
-    title: 'Rejected',
-    description: 'Does not satisfy this project brief',
-  },
 ];
 
 const CHECKS = [
@@ -46,9 +41,11 @@ function compactEvidence(dataset) {
 export default function CandidateBoard() {
   const { state, selected, selectDataset } = useGame();
   const datasets = state.datasets || [];
+  const visibleDatasets = datasets.filter((dataset) => dataset.status !== 'rejected');
+  const rejectedCount = datasets.length - visibleDatasets.length;
   const counts = LANES.map((lane) => ({
     ...lane,
-    count: datasets.filter((dataset) => dataset.status === lane.status).length,
+    count: visibleDatasets.filter((dataset) => dataset.status === lane.status).length,
   }));
 
   if (!datasets.length) {
@@ -76,12 +73,16 @@ export default function CandidateBoard() {
             <strong>{lane.count}</strong>
           </div>
         ))}
-        <p>Read left to right as a decision queue: usable now, usable with caveats, or not a fit for this brief.</p>
+        <div className="decision-stat stat-filtered">
+          <span>Filtered out</span>
+          <strong>{rejectedCount}</strong>
+        </div>
+        <p>The board keeps attention on viable leads. Rejected datasets still appear in the ranked list when their evidence is useful.</p>
       </div>
 
       <div className="candidate-lanes">
         {counts.map((lane) => {
-          const laneDatasets = datasets.filter((dataset) => dataset.status === lane.status);
+          const laneDatasets = visibleDatasets.filter((dataset) => dataset.status === lane.status);
           return (
             <section className={`candidate-lane lane-${lane.status}`} key={lane.status}>
               <div className="lane-heading">
@@ -117,7 +118,7 @@ export default function CandidateBoard() {
                   </div>
                 </button>
               )) : (
-                <div className="candidate-empty">No candidates in this tier yet.</div>
+                <div className="candidate-empty">No viable candidates in this tier yet.</div>
               )}
             </section>
           );

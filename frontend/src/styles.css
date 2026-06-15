@@ -221,6 +221,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 
 .process-section { padding: 20px 20px 26px; }
 .method-list { margin: 14px 0 0; padding: 0; list-style: none; display: grid; }
+.method-note { margin: 10px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
 .method-list li {
   padding: 10px 0;
   display: grid;
@@ -230,7 +231,54 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 }
 .method-list li span { color: var(--forest); font: 11px var(--font-mono); }
 .process-title { display: flex; justify-content: space-between; font: 10px var(--font-mono); }
-.event-feed { max-height: 350px; margin-top: 12px; overflow-y: auto; }
+.trace-summary {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--paper-light);
+}
+.trace-summary div {
+  min-width: 0;
+  padding: 8px 6px;
+  border-right: 1px solid var(--line-soft);
+}
+.trace-summary div:last-child { border-right: 0; }
+.trace-summary span {
+  display: block;
+  color: var(--ink-soft);
+  font: 7px var(--font-mono);
+  text-transform: uppercase;
+}
+.trace-summary strong {
+  display: block;
+  margin-top: 4px;
+  font: 650 15px var(--font-display);
+}
+.trace-focus {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-blue);
+}
+.trace-focus span {
+  display: block;
+  color: var(--ink-soft);
+  font: 8px var(--font-mono);
+  text-transform: uppercase;
+}
+.trace-focus strong {
+  display: block;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.event-feed { max-height: 380px; margin-top: 12px; overflow-y: auto; }
 .event-row {
   padding: 10px 0;
   display: grid;
@@ -242,6 +290,21 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .event-row strong { font: 600 10px var(--font-mono); text-transform: uppercase; }
 .event-row p { margin: 3px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
 .event-error p { color: var(--clay); }
+.event-meta {
+  margin-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.event-meta span {
+  padding: 3px 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-soft);
+  font: 7px var(--font-mono);
+  text-transform: uppercase;
+}
 .trace-cursor { padding: 10px 0; color: var(--forest); font: 10px var(--font-mono); animation: blink 1.2s infinite; }
 @keyframes blink { 50% { opacity: 0.35; } }
 
@@ -393,7 +456,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 }
 .stat-recommended strong { color: var(--forest-dark); }
 .stat-conditional strong { color: var(--amber); }
-.stat-rejected strong { color: var(--clay); }
+.stat-filtered strong { color: var(--clay); }
 .decision-summary p {
   margin: 0;
   padding: 9px 11px;
@@ -435,7 +498,6 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
 .lane-heading b { font: 650 18px var(--font-display); }
 .lane-recommended .lane-heading b { color: var(--forest-dark); }
 .lane-conditional .lane-heading b { color: var(--amber); }
-.lane-rejected .lane-heading b { color: var(--clay); }
 .candidate-card {
   width: 100%;
   padding: 10px;
