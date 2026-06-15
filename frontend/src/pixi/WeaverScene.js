@@ -1,9 +1,9 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 
 const COLORS = {
-  recommended: 0x355d4a,
-  conditional: 0xd58b36,
-  rejected: 0xa8503e,
+  recommended: 0x2489c9,
+  conditional: 0xc47a18,
+  rejected: 0xbd4b5c,
 };
 
 export class WeaverScene {
@@ -77,7 +77,7 @@ export class WeaverScene {
       const middleY = (from.y + to.y) / 2 - 24;
       line.moveTo(from.x, from.y);
       line.bezierCurveTo(from.x, middleY, to.x, middleY, to.x, to.y);
-      line.stroke({ width: 1.5, color: 0x8e7655, alpha: 0.34 });
+      line.stroke({ width: 1.5, color: 0x4f9ed0, alpha: 0.3 });
       this.world.addChild(line);
     }
 
@@ -101,7 +101,7 @@ export class WeaverScene {
           fontFamily: 'Arial, sans-serif',
           fontSize: 13,
           fontWeight: '700',
-          fill: 0xfffbf2,
+          fill: 0xffffff,
         },
       });
       score.anchor.set(0.5);
@@ -116,7 +116,7 @@ export class WeaverScene {
           fontFamily: 'Arial, sans-serif',
           fontSize: 11,
           fontWeight: selected ? '700' : '500',
-          fill: 0x292721,
+          fill: 0x102a43,
           align: 'center',
         },
       });
