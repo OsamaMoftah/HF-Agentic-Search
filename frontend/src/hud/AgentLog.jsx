@@ -6,6 +6,7 @@ const LABELS = {
   plan: 'Plan',
   search: 'Search',
   inspect: 'Inspect',
+  reflect: 'Reflect',
   ranking: 'Rank',
   complete: 'Done',
   error: 'Error',
@@ -47,6 +48,14 @@ function EventMeta({ event }) {
     return (
       <div className="event-meta">
         <span>{event.queries.length} search angles</span>
+      </div>
+    );
+  }
+  if (event.type === 'reflect' && event.next_queries?.length) {
+    return (
+      <div className="event-meta">
+        <span>{event.strategy}</span>
+        <span>{event.next_queries.length} next angles</span>
       </div>
     );
   }

@@ -10,6 +10,16 @@ function Check({ label, value }) {
   );
 }
 
+function SampleTest({ test }) {
+  return (
+    <div className={`sample-test sample-${test.status}`}>
+      <strong>{test.name}</strong>
+      <span>{test.status}</span>
+      <p>{test.detail}</p>
+    </div>
+  );
+}
+
 export default function DetailCard() {
   const { selected } = useGame();
   if (!selected) return null;
@@ -27,6 +37,7 @@ export default function DetailCard() {
       <p className="detail-description">
         {selected.description || 'No dataset-card description was available.'}
       </p>
+      {selected.discovery_note ? <p className="discovery-note">{selected.discovery_note}</p> : null}
 
       <div className="score-grid">
         {Object.entries(selected.score_breakdown || {}).map(([key, value]) => (
@@ -59,6 +70,22 @@ export default function DetailCard() {
           <div className="tag-list">
             {selected.features.slice(0, 14).map((feature) => <span key={feature}>{feature}</span>)}
           </div>
+        </div>
+      ) : null}
+
+      {selected.sample_tests?.length ? (
+        <div className="detail-block">
+          <span className="field-label">Sample tests</span>
+          <div className="sample-test-list">
+            {selected.sample_tests.map((test) => <SampleTest key={test.name} test={test} />)}
+          </div>
+        </div>
+      ) : null}
+
+      {selected.loader_snippet ? (
+        <div className="detail-block">
+          <span className="field-label">Starter loader</span>
+          <pre className="loader-snippet">{selected.loader_snippet}</pre>
         </div>
       ) : null}
 

@@ -3,14 +3,22 @@ import { useGame } from '../GameProvider.jsx';
 
 const LANES = [
   {
-    status: 'recommended',
-    title: 'Recommended',
+    key: 'best',
+    title: 'Best fits',
     description: 'Ready for a first experiment',
+    filter: (dataset) => dataset.status === 'recommended' && !dataset.badges?.includes('hidden_gem'),
   },
   {
-    status: 'conditional',
-    title: 'Review gaps',
+    key: 'hidden',
+    title: 'Hidden gems',
+    description: 'Lower adoption, strong evidence fit',
+    filter: (dataset) => dataset.badges?.includes('hidden_gem'),
+  },
+  {
+    key: 'review',
+    title: 'Needs review',
     description: 'Useful, but one or more checks need attention',
+    filter: (dataset) => dataset.status === 'conditional' && !dataset.badges?.includes('hidden_gem'),
   },
 ];
 
@@ -45,7 +53,7 @@ export default function CandidateBoard() {
   const rejectedCount = datasets.length - visibleDatasets.length;
   const counts = LANES.map((lane) => ({
     ...lane,
-    count: visibleDatasets.filter((dataset) => dataset.status === lane.status).length,
+    count: visibleDatasets.filter(lane.filter).length,
   }));
 
   if (!datasets.length) {
@@ -68,7 +76,7 @@ export default function CandidateBoard() {
     <div className="candidate-board">
       <div className="decision-summary">
         {counts.map((lane) => (
-          <div className={`decision-stat stat-${lane.status}`} key={lane.status}>
+          <div className={`decision-stat stat-${lane.key}`} key={lane.key}>
             <span>{lane.title}</span>
             <strong>{lane.count}</strong>
           </div>
@@ -82,9 +90,9 @@ export default function CandidateBoard() {
 
       <div className="candidate-lanes">
         {counts.map((lane) => {
-          const laneDatasets = visibleDatasets.filter((dataset) => dataset.status === lane.status);
+          const laneDatasets = visibleDatasets.filter(lane.filter);
           return (
-            <section className={`candidate-lane lane-${lane.status}`} key={lane.status}>
+            <section className={`candidate-lane lane-${lane.key}`} key={lane.key}>
               <div className="lane-heading">
                 <div>
                   <strong>{lane.title}</strong>
@@ -104,8 +112,16 @@ export default function CandidateBoard() {
                     <strong title={dataset.id}>{shortName(dataset.id)}</strong>
                     <span>{dataset.score}</span>
                   </div>
+                  {dataset.badges?.length ? (
+                    <div className="candidate-badges">
+                      {dataset.badges.map((badge) => (
+                        <span key={badge}>{badge.replaceAll('_', ' ')}</span>
+                      ))}
+                    </div>
+                  ) : null}
                   <p>{mainGap(dataset)}</p>
                   <small>{compactEvidence(dataset)}</small>
+                  {dataset.sample_test_summary ? <small>{dataset.sample_test_summary}</small> : null}
                   <div className="check-dots" aria-label="Evidence checks">
                     {CHECKS.map(([key, label]) => {
                       const value = dataset.checks?.[key] || 'unknown';

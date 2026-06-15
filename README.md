@@ -42,9 +42,11 @@ The app performs a multi-step research loop:
 2. Plan multiple targeted Hub searches.
 3. Deduplicate and pre-rank candidates by request relevance.
 4. Inspect dataset cards, tags, configurations, splits, schema fields, and sample rows.
-5. Run explicit modality, language, required-field, license, and accessibility checks.
-6. Rank candidates from evidence and connect potentially complementary datasets.
-7. Stream the trace and explain verified strengths, limitations, and rejection reasons.
+5. Reflect on first-pass failures and run a second targeted search when the evidence is weak.
+6. Run explicit modality, language, required-field, sample-row, license, and accessibility checks.
+7. Highlight hidden gems when low-adoption datasets have strong verified fit.
+8. Rank candidates from evidence and connect potentially complementary datasets.
+9. Stream the trace and explain verified strengths, limitations, and rejection reasons.
 
 `HuggingFaceTB/SmolLM2-360M-Instruct` runs locally inside the Space CPU runtime and helps interpret
 the brief. At only 360M parameters, it is comfortably below the Tiny Titan 4B limit. The model
@@ -69,6 +71,16 @@ Every 100-point score is assembled from inspectable components:
 Missing evidence is shown as `unknown` rather than silently converted into an average score.
 Hard modality, language, accessibility, or required-schema mismatches produce explicit rejection
 reasons.
+
+## Agent loop
+
+HF Agentic Search does not stop after one keyword pass. It runs an initial search plan, inspects
+real Hugging Face evidence, reflects on what failed, and launches a bounded second-pass search
+aimed at the missing signal. For example, if the first climate search finds reports but not
+question-answer rows, the agent switches to schema-first queries such as `climate qa dataset`.
+
+The final result includes visible trace events, sample-row tests, hidden-gem labels, rejection
+reasons, and starter `load_dataset` code for the selected dataset.
 
 ## Architecture
 

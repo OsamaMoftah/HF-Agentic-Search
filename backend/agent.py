@@ -452,6 +452,122 @@ def _matches_field(requirement: str, field: str) -> bool:
     return normalized in aliases
 
 
+def _field_value(row: dict[str, Any], fields: list[str]) -> Any:
+    lowered = {str(key).lower(): value for key, value in row.items()}
+    for field in fields:
+        value = lowered.get(str(field).lower())
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def _sample_tests(
+    profile: dict[str, Any],
+    dataset: dict[str, Any],
+    matched_requirements: dict[str, list[str]],
+) -> list[dict[str, str]]:
+    rows = [row for row in dataset.get("sample_rows", []) if isinstance(row, dict)]
+    required_fields = profile["required_fields"]
+    tests: list[dict[str, str]] = []
+    if not rows:
+        return [{
+            "name": "Sample rows available",
+            "status": "unknown",
+            "detail": "Dataset Viewer did not expose sample rows.",
+        }]
+
+    missing = [
+        requirement for requirement in required_fields
+        if not matched_requirements.get(requirement)
+    ]
+    empty = [
+        requirement for requirement in required_fields
+        if matched_requirements.get(requirement)
+        and not any(_field_value(row, matched_requirements[requirement]) is not None for row in rows)
+    ]
+    tests.append({
+        "name": "Required fields populated",
+        "status": "pass" if not missing and not empty else "fail" if missing else "review",
+        "detail": "All requested fields have sample values."
+        if not missing and not empty
+        else f"Missing: {', '.join(missing or empty)}.",
+    })
+
+    if {"question", "answer"} & set(required_fields):
+        question_fields = matched_requirements.get("question", [])
+        answer_fields = matched_requirements.get("answer", [])
+        question_values = [
+            str(_field_value(row, question_fields) or "") for row in rows
+            if _field_value(row, question_fields) is not None
+        ]
+        answer_values = [
+            str(_field_value(row, answer_fields) or "") for row in rows
+            if _field_value(row, answer_fields) is not None
+        ]
+        plausible_questions = sum(
+            1 for value in question_values
+            if value.endswith("?") or len(value.split()) >= 3
+        )
+        distinct_answers = sum(
+            1 for question, answer in zip(question_values, answer_values)
+            if answer and answer.strip().lower() != question.strip().lower()
+        )
+        tests.append({
+            "name": "QA row shape",
+            "status": "pass" if plausible_questions and distinct_answers else "review",
+            "detail": "Questions and answers look usable in inspected rows."
+            if plausible_questions and distinct_answers
+            else "Question/answer shape needs manual review.",
+        })
+
+    if "label" in required_fields:
+        label_fields = matched_requirements.get("label", [])
+        label_values = [
+            _field_value(row, label_fields) for row in rows
+            if _field_value(row, label_fields) is not None
+        ]
+        unique_labels = {str(value) for value in label_values}
+        tests.append({
+            "name": "Label signal",
+            "status": "pass" if label_values and len(unique_labels) <= max(20, len(rows)) else "review",
+            "detail": f"Found {len(unique_labels)} inspected label value(s)."
+            if label_values else "No label values were visible in sample rows.",
+        })
+
+    if {"document", "summary"}.issubset(required_fields):
+        document_fields = matched_requirements.get("document", [])
+        summary_fields = matched_requirements.get("summary", [])
+        shorter = 0
+        for row in rows:
+            document = str(_field_value(row, document_fields) or "")
+            summary = str(_field_value(row, summary_fields) or "")
+            if document and summary and len(summary) < len(document):
+                shorter += 1
+        tests.append({
+            "name": "Summary shape",
+            "status": "pass" if shorter else "review",
+            "detail": "Summaries are shorter than source documents in inspected rows."
+            if shorter else "Summary/document length relationship needs review.",
+        })
+
+    return tests
+
+
+def _loader_snippet(dataset: dict[str, Any]) -> str:
+    dataset_id = dataset.get("id", "")
+    config = (dataset.get("configs") or [None])[0]
+    split = (dataset.get("splits") or ["train"])[0]
+    args = f'"{dataset_id}"'
+    if config and config != "default":
+        args += f', "{config}"'
+    return (
+        "from datasets import load_dataset\n\n"
+        f'ds = load_dataset({args})\n'
+        f'rows = ds["{split}"]\n'
+        "print(rows[0])"
+    )
+
+
 def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str, Any]:
     """Compute a transparent score entirely from collected evidence."""
     blob = _text_blob(dataset)
@@ -545,6 +661,10 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
             for field in fields_for_requirement
         })
         schema_evidence = "missing" if available_fields else "unknown"
+
+    sample_tests = _sample_tests(profile, dataset, matched_requirements)
+    sample_test_passes = sum(1 for test in sample_tests if test["status"] == "pass")
+    sample_test_total = len(sample_tests)
 
     license_value = dataset.get("license", "")
     permissive = {"apache-2.0", "mit", "cc-by-4.0", "cc0-1.0", "odc-by", "bsd-3-clause"}
@@ -668,6 +788,20 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
     quality = round(
         (schema + license_score + documentation + popularity + accessibility) / 40 * 100
     )
+    low_adoption = (dataset.get("downloads", 0) < 2_000 and dataset.get("likes", 0) < 25)
+    hidden_gem = (
+        status != "rejected"
+        and total >= 60
+        and low_adoption
+        and checks["domain"] == "pass"
+        and checks["required_fields"] in {"pass", "review"}
+        and checks["accessible"] == "pass"
+    )
+    badges = ["hidden_gem"] if hidden_gem else []
+    discovery_note = (
+        "Hidden gem: low adoption, but the inspected evidence fits this brief."
+        if hidden_gem else ""
+    )
     return {
         **dataset,
         "score": total,
@@ -687,12 +821,17 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
             "accessibility": accessibility,
         },
         "checks": checks,
+        "sample_tests": sample_tests,
+        "sample_test_summary": f"{sample_test_passes}/{sample_test_total} sample tests passed",
         "schema_evidence": schema_evidence,
         "evidence": evidence,
         "rejection_reasons": rejection_reasons,
         "strength": strength,
         "weakness": weakness,
         "recommendation": recommendation,
+        "badges": badges,
+        "discovery_note": discovery_note,
+        "loader_snippet": _loader_snippet(dataset),
     }
 
 
@@ -714,16 +853,115 @@ def _cross_reference(datasets: list[dict[str, Any]]) -> list[dict[str, str]]:
     return pairs
 
 
-def _rank_key(profile: dict[str, Any], dataset: dict[str, Any]) -> tuple[int, int, int]:
+def _rank_key(profile: dict[str, Any], dataset: dict[str, Any]) -> tuple[int, int, int, int]:
     checks = dataset["checks"]
+    hidden_gem = 1 if "hidden_gem" in dataset.get("badges", []) else 0
+    sample_passes = sum(1 for test in dataset.get("sample_tests", []) if test.get("status") == "pass")
     evidence_fit = (
         (2 if checks["required_fields"] == "pass" else 0)
         + (1 if checks["domain"] == "pass" else 0)
         + (2 if profile["languages"] and checks["language"] == "pass" else 0)
         + (2 if profile["license"] and checks["license"] == "pass" else 0)
+        + sample_passes
     )
     status_rank = {"recommended": 2, "conditional": 1, "rejected": 0}[dataset["status"]]
-    return status_rank, evidence_fit, dataset["score"]
+    return status_rank, hidden_gem, evidence_fit, dataset["score"]
+
+
+def _select_candidates_for_profile(
+    profile: dict[str, Any],
+    collected: dict[str, dict[str, Any]],
+    search_batches: list[list[str]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    global_ranked = sorted(
+        collected.values(),
+        key=lambda dataset: _pre_score(profile, dataset),
+        reverse=True,
+    )
+    diversified_ids: list[str] = []
+    diversified_seen: set[str] = set()
+    for position in range(8):
+        for batch in search_batches:
+            if position >= len(batch):
+                continue
+            dataset_id = batch[position]
+            if dataset_id not in diversified_seen:
+                diversified_seen.add(dataset_id)
+                diversified_ids.append(dataset_id)
+    for dataset in global_ranked:
+        if dataset["id"] not in diversified_seen:
+            diversified_ids.append(dataset["id"])
+    return [
+        collected[dataset_id]
+        for dataset_id in diversified_ids[:limit]
+        if dataset_id in collected
+    ]
+
+
+def _reflect_on_results(
+    profile: dict[str, Any],
+    tried_queries: list[str],
+    inspected: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not inspected:
+        summary = "The first search did not produce inspectable datasets, so the agent is broadening the query language."
+        strategy = "broaden search"
+    else:
+        failures = {
+            key: sum(1 for dataset in inspected if dataset.get("checks", {}).get(key) in {"fail", "unknown"})
+            for key in ("domain", "required_fields", "language", "license", "accessible")
+        }
+        worst = max(failures, key=failures.get)
+        if worst == "required_fields":
+            summary = "The first pass found topical datasets, but too many missed the requested schema."
+            strategy = "schema-first search"
+        elif worst == "domain":
+            summary = "The first pass found task-shaped datasets, but several were off-topic."
+            strategy = "domain-first search"
+        elif worst == "language":
+            summary = "The first pass found candidates with weak language evidence."
+            strategy = "language-focused search"
+        else:
+            summary = "The first pass found partial fits; the agent is looking for less obvious alternatives."
+            strategy = "hidden-gem search"
+
+    terms = _domain_terms(profile)
+    domain = terms[:2]
+    required = profile["required_fields"]
+    next_queries: list[str] = []
+    if domain and {"question", "answer"}.issubset(required):
+        next_queries.extend([
+            f"{domain[0]} qa dataset",
+            " ".join(domain + ["question answer"]),
+            " ".join(domain + ["benchmark"]),
+        ])
+    if domain and "label" in required:
+        next_queries.extend([
+            f"{domain[0]} labeled dataset",
+            f"{domain[0]} intent labels",
+        ])
+    if domain and "summary" in required:
+        next_queries.extend([
+            " ".join(domain + ["summaries"]),
+            " ".join(domain + ["summarization dataset"]),
+        ])
+    if profile["languages"] and domain:
+        next_queries.append(" ".join([profile["languages"][0], domain[0], "dataset"]))
+    if domain:
+        next_queries.append(" ".join(domain + ["data"]))
+    next_queries.extend(generate_queries("", profile))
+    cleaned = []
+    for query in next_queries:
+        normalized = re.sub(r"\s+", " ", query).strip()
+        if normalized and normalized not in tried_queries and normalized not in cleaned:
+            cleaned.append(normalized)
+    return {
+        "summary": summary,
+        "strategy": strategy,
+        "next_queries": cleaned[:4],
+        "reason": "Reflection is based on failed checks from the first inspected batch.",
+    }
 
 
 def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
@@ -748,7 +986,13 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
 
     collected: dict[str, dict[str, Any]] = {}
     search_batches: list[list[str]] = []
-    for query in queries:
+    inspected: list[dict[str, Any]] = []
+    inspected_ids: set[str] = set()
+
+    first_pass_queries = queries[:5]
+    reserve_queries = queries[5:]
+
+    for query in first_pass_queries:
         found = search_datasets(query, limit=35)
         search_batches.append([dataset["id"] for dataset in found])
         for dataset in found:
@@ -764,37 +1008,20 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
         }
 
     inspection_limit = max(max_datasets * 4, 28)
-    global_ranked = sorted(
-        collected.values(),
-        key=lambda dataset: _pre_score(profile, dataset),
-        reverse=True,
+    first_pass_limit = max(max_datasets * 2, 16)
+    pre_ranked = _select_candidates_for_profile(
+        profile,
+        collected,
+        search_batches,
+        first_pass_limit,
     )
-    diversified_ids: list[str] = []
-    diversified_seen: set[str] = set()
-    for position in range(8):
-        for batch in search_batches:
-            if position >= len(batch):
-                continue
-            dataset_id = batch[position]
-            if dataset_id not in diversified_seen:
-                diversified_seen.add(dataset_id)
-                diversified_ids.append(dataset_id)
-    for dataset in global_ranked:
-        if dataset["id"] not in diversified_seen:
-            diversified_ids.append(dataset["id"])
-    pre_ranked = [
-        collected[dataset_id]
-        for dataset_id in diversified_ids[:inspection_limit]
-        if dataset_id in collected
-    ]
     yield {
         "type": "search",
-        "query": "deep candidate pool",
+        "query": "first evidence pool",
         "found": len(pre_ranked),
         "unique": len(collected),
-        "message": f"Prepared {len(pre_ranked)} diverse candidates for evidence inspection.",
+        "message": f"Prepared {len(pre_ranked)} diverse candidates for first-pass inspection.",
     }
-    inspected: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(pre_ranked)))) as pool:
         futures = {
             pool.submit(inspect_dataset, dataset["id"], dataset): dataset["id"]
@@ -816,6 +1043,7 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
                 }
             scored = score_dataset(profile, evidence)
             inspected.append(scored)
+            inspected_ids.add(dataset_id)
             yield {
                 "type": "inspect",
                 "dataset_id": dataset_id,
@@ -825,6 +1053,83 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
                 "message": f"Inspected {dataset_id}: {scored['status']} ({scored['score']}/100).",
             }
             yield {"type": "candidate", "dataset": _public_dataset(scored)}
+
+    reflection = _reflect_on_results(profile, first_pass_queries, inspected)
+    second_pass_queries = list(dict.fromkeys(reflection["next_queries"] + reserve_queries))[:4]
+    yield {
+        "type": "reflect",
+        "summary": reflection["summary"],
+        "strategy": reflection["strategy"],
+        "next_queries": second_pass_queries,
+        "message": f"{reflection['summary']} Trying {len(second_pass_queries)} deeper search angle(s).",
+    }
+
+    for query in second_pass_queries:
+        found = search_datasets(query, limit=35)
+        search_batches.append([dataset["id"] for dataset in found])
+        new_count = 0
+        for dataset in found:
+            current = collected.get(dataset["id"])
+            if current is None:
+                new_count += 1
+            if current is None or _pre_score(profile, dataset) > _pre_score(profile, current):
+                collected[dataset["id"]] = dataset
+        yield {
+            "type": "search",
+            "query": query,
+            "found": len(found),
+            "unique": len(collected),
+            "message": f"Deepened with “{query}” and found {len(found)} candidates ({new_count} new).",
+        }
+
+    deeper_pool = [
+        dataset for dataset in _select_candidates_for_profile(
+            profile,
+            collected,
+            search_batches,
+            inspection_limit,
+        )
+        if dataset["id"] not in inspected_ids
+    ][:max(max_datasets * 2, 16)]
+    yield {
+        "type": "search",
+        "query": "deep candidate pool",
+        "found": len(deeper_pool),
+        "unique": len(collected),
+        "message": f"Prepared {len(deeper_pool)} fresh candidates after reflection.",
+    }
+    if deeper_pool:
+        with ThreadPoolExecutor(max_workers=min(4, len(deeper_pool))) as pool:
+            futures = {
+                pool.submit(inspect_dataset, dataset["id"], dataset): dataset["id"]
+                for dataset in deeper_pool
+            }
+            for future in as_completed(futures):
+                dataset_id = futures[future]
+                try:
+                    evidence = future.result()
+                except Exception as exc:
+                    evidence = {
+                        **next(item for item in deeper_pool if item["id"] == dataset_id),
+                        "accessible": False,
+                        "inspection_error": str(exc),
+                        "features": [],
+                        "sample_rows": [],
+                        "configs": [],
+                        "splits": [],
+                    }
+                scored = score_dataset(profile, evidence)
+                inspected.append(scored)
+                inspected_ids.add(dataset_id)
+                yield {
+                    "type": "inspect",
+                    "dataset_id": dataset_id,
+                    "status": scored["status"],
+                    "score": scored["score"],
+                    "checks": scored["checks"],
+                    "message": f"Inspected {dataset_id}: {scored['status']} ({scored['score']}/100).",
+                }
+                yield {"type": "candidate", "dataset": _public_dataset(scored)}
 
     ranked = sorted(
         inspected,
@@ -856,6 +1161,7 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
         "model_used": MODEL if llm_used else None,
         "fallback_used": not llm_used,
         "elapsed_ms": round((time.time() - started) * 1000),
+        "reflection": reflection,
     }
     yield {
         "type": "ranking",
@@ -874,6 +1180,7 @@ def _public_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
         "accessible", "inspection_error", "card_complete", "num_examples", "score", "relevance",
         "quality", "status", "score_breakdown", "checks", "evidence",
         "schema_evidence", "rejection_reasons", "strength", "weakness", "recommendation",
+        "sample_tests", "sample_test_summary", "badges", "discovery_note", "loader_snippet",
     }
     return {key: value for key, value in dataset.items() if key in allowed}
 

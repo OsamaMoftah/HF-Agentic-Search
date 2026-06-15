@@ -6,6 +6,7 @@ const STEPS = [
   { type: 'plan', label: 'Understand', detail: 'Turn the brief into explicit requirements' },
   { type: 'search', label: 'Search', detail: 'Explore several angles across the Hub' },
   { type: 'inspect', label: 'Inspect', detail: 'Read cards, schemas and sample rows' },
+  { type: 'reflect', label: 'Reflect', detail: 'Revise the search from evidence gaps' },
   { type: 'ranking', label: 'Rank', detail: 'Compare evidence and explain the result' },
 ];
 

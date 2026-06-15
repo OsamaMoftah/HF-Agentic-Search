@@ -190,6 +190,29 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(tiny["status"], "conditional")
         self.assertGreater(training_sized["score"], tiny["score"])
 
+    def test_hidden_gem_sample_tests_and_loader_are_exposed(self):
+        profile, _ = parse_task(
+            "Climate science question-answer pairs for retrieval",
+            use_llm=False,
+        )
+        scored = score_dataset(
+            profile,
+            dataset(
+                id="small-lab/climate-qa-gem",
+                description="Climate science question-answer pairs.",
+                downloads=90,
+                likes=3,
+                features=["question", "answer"],
+                sample_rows=[{"question": "How does climate affect rainfall?", "answer": "It changes rainfall patterns."}],
+                configs=["default"],
+                splits=["train"],
+            ),
+        )
+        self.assertIn("hidden_gem", scored["badges"])
+        self.assertTrue(scored["sample_tests"])
+        self.assertIn("sample tests passed", scored["sample_test_summary"])
+        self.assertIn('load_dataset("small-lab/climate-qa-gem")', scored["loader_snippet"])
+
     def test_queries_are_short_and_hub_friendly(self):
         profile, _ = parse_task(
             "English customer support intent data with labels for a compact classifier",
@@ -364,8 +387,47 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(event_types[1], "plan")
         self.assertIn("search", event_types)
         self.assertIn("inspect", event_types)
+        self.assertIn("reflect", event_types)
         self.assertEqual(event_types[-2:], ["ranking", "complete"])
         self.assertEqual(events[-1]["result"]["top_pick"], candidate["id"])
+
+    @patch("backend.agent._llm", return_value=None)
+    def test_reflection_second_pass_can_recover_a_schema_gem(self, _mock_llm):
+        weak = dataset(
+            id="broad/climate-reports",
+            description="Climate science reports.",
+            features=["text"],
+            sample_rows=[{"text": "Climate report"}],
+        )
+        gem = dataset(
+            id="niche/climate-qa-gem",
+            description="Climate science question-answer pairs.",
+            downloads=12,
+            likes=1,
+            features=["question", "answer"],
+            sample_rows=[{"question": "What is climate sensitivity?", "answer": "A warming estimate."}],
+        )
+
+        def fake_search(query, limit=35):
+            return [gem] if "qa dataset" in query else [weak]
+
+        def fake_inspect(_dataset_id, base):
+            return base
+
+        with (
+            patch("backend.agent.search_datasets", side_effect=fake_search),
+            patch("backend.agent.inspect_dataset", side_effect=fake_inspect),
+        ):
+            events = list(weave_events("Climate science question-answer pairs for retrieval"))
+
+        result = events[-1]["result"]
+        event_types = [event["type"] for event in events]
+        self.assertIn("reflect", event_types)
+        self.assertEqual(result["top_pick"], gem["id"])
+        self.assertTrue(any(
+            dataset["id"] == gem["id"] and "hidden_gem" in dataset.get("badges", [])
+            for dataset in result["datasets"]
+        ))
 
     @patch("backend.agent._llm", return_value=None)
     def test_search_angles_are_diversified_before_inspection(self, _mock_llm):
