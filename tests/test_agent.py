@@ -154,6 +154,129 @@ class AgentTests(unittest.TestCase):
         self.assertIn("customer support", queries)
         self.assertTrue(all(len(query.split()) <= 3 for query in queries))
 
+    def test_task_specific_profiles_and_queries(self):
+        summary, _ = parse_task(
+            "Arabic legal documents for abstractive summarization with a permissive license",
+            use_llm=False,
+        )
+        self.assertEqual(summary["task_type"], "summarization")
+        self.assertEqual(summary["required_fields"], ["document", "summary"])
+        self.assertEqual(summary["modalities"], ["text"])
+        self.assertEqual(summary["license"], "permissive")
+        self.assertIn("legal summarization", generate_queries("unused", summary))
+
+        retrieval, _ = parse_task(
+            "Question-answer pairs about climate science for retrieval evaluation",
+            use_llm=False,
+        )
+        self.assertEqual(retrieval["task_type"], "retrieval")
+        self.assertEqual(retrieval["required_fields"], ["question", "answer"])
+        self.assertIn("climate science retrieval", generate_queries("unused", retrieval))
+
+        translation, _ = parse_task(
+            "Spanish to English translation pairs with source and target text",
+            use_llm=False,
+        )
+        self.assertEqual(translation["task_type"], "translation")
+        self.assertEqual(translation["required_fields"], ["source", "target"])
+        self.assertNotIn("label", translation["required_fields"])
+
+        asr, _ = parse_task(
+            "Speech recordings with transcripts for English ASR",
+            use_llm=False,
+        )
+        self.assertEqual(asr["task_type"], "automatic speech recognition")
+        self.assertEqual(asr["required_fields"], ["audio", "transcript"])
+
+    def test_task_specific_schema_fields_are_verified(self):
+        profile, _ = parse_task(
+            "Legal documents for summarization",
+            use_llm=False,
+        )
+        good = score_dataset(
+            profile,
+            dataset(
+                id="example/legal-summarization",
+                description="Legal case summarization.",
+                features=["judgement", "summary"],
+                sample_rows=[{"judgement": "Long case text", "summary": "Short holding"}],
+            ),
+        )
+        wrong = score_dataset(
+            profile,
+            dataset(
+                id="example/legal-classification",
+                features=["text", "label"],
+                sample_rows=[{"text": "Long case text", "label": "contract"}],
+            ),
+        )
+        self.assertEqual(good["checks"]["required_fields"], "pass")
+        self.assertEqual(wrong["checks"]["required_fields"], "fail")
+        self.assertGreater(good["score"], wrong["score"])
+
+        climate_profile, _ = parse_task(
+            "Climate question-answer pairs for retrieval",
+            use_llm=False,
+        )
+        climate_qa = score_dataset(
+            climate_profile,
+            dataset(
+                id="example/climate-question-answers",
+                description="Climate science question answering.",
+                features=["instruction", "answer"],
+                sample_rows=[{"instruction": "What is methane?", "answer": "A greenhouse gas."}],
+            ),
+        )
+        self.assertEqual(climate_qa["checks"]["required_fields"], "pass")
+
+    def test_nested_translation_schema_and_bilingual_language_check(self):
+        profile, _ = parse_task(
+            "Spanish to English translation pairs",
+            use_llm=False,
+        )
+        bilingual = score_dataset(
+            profile,
+            dataset(
+                id="example/en-es-translation",
+                languages=["en", "es"],
+                features=["translation"],
+                sample_rows=[{"translation": {"en": "hello", "es": "hola"}}],
+            ),
+        )
+        english_only = score_dataset(
+            profile,
+            dataset(
+                id="example/english-translation",
+                languages=["en"],
+                features=["source", "target"],
+                sample_rows=[{"source": "hello", "target": "hi"}],
+            ),
+        )
+        self.assertEqual(bilingual["checks"]["required_fields"], "pass")
+        self.assertEqual(bilingual["checks"]["language"], "pass")
+        self.assertEqual(english_only["checks"]["language"], "review")
+        self.assertGreater(bilingual["score"], english_only["score"])
+
+    def test_arabic_language_can_be_inferred_from_sample_script(self):
+        profile, _ = parse_task(
+            "Arabic news articles for summarization",
+            use_llm=False,
+        )
+        scored = score_dataset(
+            profile,
+            dataset(
+                id="example/arabic-summarization",
+                languages=[],
+                features=["text", "summary"],
+                sample_rows=[{
+                    "text": "هذا نص عربي طويل عن الأخبار والاقتصاد.",
+                    "summary": "ملخص عربي قصير.",
+                }],
+            ),
+        )
+        self.assertEqual(scored["checks"]["language"], "pass")
+        self.assertIn("inferred from sample script", scored["evidence"][2])
+
     @patch(
         "backend.agent._llm",
         return_value='{"task_type":"compact","license":"gpl","domain_keywords":["support"]}',
@@ -164,7 +287,7 @@ class AgentTests(unittest.TestCase):
             use_llm=True,
         )
         self.assertTrue(used)
-        self.assertEqual(profile["task_type"], "classification")
+        self.assertEqual(profile["task_type"], "intent classification")
         self.assertEqual(profile["license"], "")
         self.assertIn("label", profile["required_fields"])
 
@@ -196,6 +319,38 @@ class AgentTests(unittest.TestCase):
         self.assertIn("inspect", event_types)
         self.assertEqual(event_types[-2:], ["ranking", "complete"])
         self.assertEqual(events[-1]["result"]["top_pick"], candidate["id"])
+
+    @patch("backend.agent._llm", return_value=None)
+    def test_search_angles_are_diversified_before_inspection(self, _mock_llm):
+        popular = [
+            dataset(id=f"popular/{index}", downloads=1_000_000 - index)
+            for index in range(20)
+        ]
+        niche = dataset(
+            id="niche/climate-question-answers",
+            description="Climate science question answers.",
+            features=["question", "answer"],
+            sample_rows=[{"question": "Climate?", "answer": "Science."}],
+        )
+        search_call = 0
+
+        def fake_search(_query, limit=20):
+            nonlocal search_call
+            search_call += 1
+            return popular if search_call == 1 else [niche]
+
+        inspected_ids = []
+
+        def fake_inspect(dataset_id, base):
+            inspected_ids.append(dataset_id)
+            return base
+
+        with (
+            patch("backend.agent.search_datasets", side_effect=fake_search),
+            patch("backend.agent.inspect_dataset", side_effect=fake_inspect),
+        ):
+            weave("Climate question-answer pairs for retrieval")
+        self.assertIn(niche["id"], inspected_ids)
 
 
 if __name__ == "__main__":

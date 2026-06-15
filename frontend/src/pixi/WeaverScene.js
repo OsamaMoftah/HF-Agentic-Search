@@ -98,7 +98,7 @@ export class WeaverScene {
       const score = new Text({
         text: String(node.score),
         style: {
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: 'Sora, Arial, sans-serif',
           fontSize: 13,
           fontWeight: '700',
           fill: 0xffffff,
@@ -113,7 +113,7 @@ export class WeaverScene {
       const label = new Text({
         text: shortName.length > 22 ? `${shortName.slice(0, 20)}…` : shortName,
         style: {
-          fontFamily: 'Arial, sans-serif',
+          fontFamily: 'Sora, Arial, sans-serif',
           fontSize: 11,
           fontWeight: selected ? '700' : '500',
           fill: 0x102a43,

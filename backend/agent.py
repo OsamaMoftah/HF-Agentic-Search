@@ -24,6 +24,9 @@ _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "your", "have",
     "need", "want", "like", "build", "using", "data", "dataset", "model",
     "small", "find", "looking", "project", "create", "make", "into",
+    "about", "pairs", "examples", "records", "documents", "corpus",
+    "evaluation", "evaluate", "permissive", "license", "compact",
+    "abstractive", "extractive", "recordings", "transcripts",
 }
 _LANGUAGES = {
     "english": "en", "arabic": "ar", "french": "fr", "german": "de",
@@ -34,10 +37,10 @@ _MODALITIES = {
     "audio": ("audio", "speech", "voice", "asr"),
     "image": ("image", "vision", "photo", "ocr"),
     "video": ("video",),
-    "tabular": ("tabular", "table", "csv", "classification"),
+    "tabular": ("tabular", "table", "csv", "structured"),
     "text": ("text", "document", "summarization", "translation", "intent", "chat"),
 }
-_LABEL_TERMS = {"label", "labels", "class", "classes", "intent", "category", "target"}
+_LABEL_TERMS = {"label", "labels", "class", "classes", "intent", "category"}
 _DIRECT_LABEL_FIELDS = {
     "label", "labels", "intent", "category", "class", "target",
     "detected_intent", "intent_label", "class_label",
@@ -45,8 +48,68 @@ _DIRECT_LABEL_FIELDS = {
 _PROXY_LABEL_FIELDS = {"type", "queue", "topic", "department", "route", "routing"}
 _TASK_TYPES = {
     "intent classification", "classification", "summarization", "translation",
-    "question answering", "retrieval", "fine-tuning", "pretraining", "dataset discovery",
+    "question answering", "retrieval", "automatic speech recognition",
+    "fine-tuning", "pretraining", "dataset discovery",
 }
+_TASK_ALIASES = {
+    "intent classification": ("intent classification", "intent"),
+    "classification": ("classification",),
+    "summarization": ("summarization", "summary"),
+    "translation": ("translation",),
+    "question answering": ("question answering", "qa"),
+    "retrieval": ("retrieval", "search"),
+    "automatic speech recognition": ("speech recognition", "asr", "transcription"),
+    "fine-tuning": ("instruction", "fine tuning"),
+    "pretraining": ("pretraining",),
+}
+_FIELD_ALIASES = {
+    "text": {
+        "text", "sentence", "content", "document", "article", "body", "query",
+        "utterance", "input_text", "text_input",
+    },
+    "label": _DIRECT_LABEL_FIELDS,
+    "document": {
+        "document", "article", "text", "content", "body", "source",
+        "judgement", "judgment", "case_text", "legal_text",
+    },
+    "summary": {
+        "summary", "highlights", "abstract", "target", "headline",
+        "summarizer", "processed_text",
+    },
+    "question": {"question", "query", "prompt", "question_text", "instruction"},
+    "answer": {"answer", "answers", "response", "context", "answer_text"},
+    "source": {"source", "src", "text", "sentence", "input", "source_text", "input_text"},
+    "target": {
+        "target", "tgt", "translation", "translated_text", "output",
+        "target_text", "output_text",
+    },
+    "audio": {"audio", "speech", "file", "path", "audio_path", "audio_file"},
+    "transcript": {
+        "transcript", "transcription", "sentence", "text",
+        "transcript_text", "transcription_text", "label",
+    },
+    "instruction": {"instruction", "prompt", "input"},
+    "response": {"response", "output", "completion", "answer"},
+}
+
+
+def _domain_terms(profile: dict[str, Any]) -> list[str]:
+    task_words = {
+        word
+        for alias in _TASK_ALIASES.get(profile["task_type"], (profile["task_type"],))
+        for word in alias.split()
+    }
+    ignored = {
+        *profile["languages"],
+        *_LANGUAGES.keys(),
+        *task_words,
+        *profile["required_fields"],
+        "labels", "label", "classifier", "classification",
+        "summarization", "summary", "translation", "retrieval", "search",
+        "question", "answer", "speech", "recognition", "asr", "transcript",
+        "text", "audio", "image", "video",
+    }
+    return [term for term in profile["domain_keywords"] if term not in ignored]
 
 
 def _llm(system: str, user: str, max_tokens: int = 350, temperature: float = 0.2) -> str | None:
@@ -122,7 +185,41 @@ def _extract_json(text: str | None) -> dict[str, Any]:
 
 
 def _keywords(text: str) -> list[str]:
-    return [word.lower() for word in _WORD_RE.findall(text) if word.lower() not in _STOPWORDS]
+    normalized = text.replace("-", " ")
+    return [word.lower() for word in _WORD_RE.findall(normalized) if word.lower() not in _STOPWORDS]
+
+
+def _task_type(lower: str) -> str:
+    if "intent" in lower and any(term in lower for term in ("classif", "label", "dataset", "data")):
+        return "intent classification"
+    if "summar" in lower:
+        return "summarization"
+    if "translat" in lower:
+        return "translation"
+    if "retrieval" in lower or "search evaluation" in lower:
+        return "retrieval"
+    if "question answer" in lower or re.search(r"\bqa\b", lower):
+        return "question answering"
+    if re.search(r"\basr\b", lower) or "speech recognition" in lower or "speech to text" in lower:
+        return "automatic speech recognition"
+    if "classif" in lower or "classifier" in lower:
+        return "classification"
+    if "fine-tun" in lower or "finetun" in lower:
+        return "fine-tuning"
+    if "pretrain" in lower:
+        return "pretraining"
+    return "dataset discovery"
+
+
+def _default_required_fields(task_type: str) -> list[str]:
+    return {
+        "intent classification": ["text", "label"],
+        "classification": ["text", "label"],
+        "summarization": ["document", "summary"],
+        "translation": ["source", "target"],
+        "question answering": ["question", "answer"],
+        "automatic speech recognition": ["audio", "transcript"],
+    }.get(task_type, [])
 
 
 def parse_task(task: str, use_llm: bool = True) -> tuple[dict[str, Any], bool]:
@@ -136,28 +233,22 @@ def parse_task(task: str, use_llm: bool = True) -> tuple[dict[str, Any], bool]:
     ]
     if not modalities:
         modalities = ["text"]
-    required_fields = []
-    if any(term in lower for term in _LABEL_TERMS):
-        required_fields.append("label")
-    for field in ("question", "answer", "instruction", "response", "summary", "translation"):
-        if field in lower:
+    task_type = _task_type(lower)
+    required_fields = _default_required_fields(task_type)
+    word_set = set(_keywords(task))
+    if task_type not in {"translation", "summarization", "question answering"}:
+        if word_set & _LABEL_TERMS:
+            required_fields.append("label")
+    for field in ("question", "answer", "instruction", "response", "summary", "transcript"):
+        if field in word_set:
             required_fields.append(field)
     profile: dict[str, Any] = {
         "languages": languages,
         "modalities": modalities,
-        "task_type": "classification" if "classifier" in lower else next(
-            (
-                name for name in (
-                    "intent classification", "classification", "summarization", "translation",
-                    "question answering", "retrieval", "fine-tuning", "pretraining",
-                )
-                if name in lower
-            ),
-            "dataset discovery",
-        ),
+        "task_type": task_type,
         "required_fields": list(dict.fromkeys(required_fields)),
-        "license": "commercial-friendly" if any(
-            term in lower for term in ("commercial", "production", "apache", "mit")
+        "license": "permissive" if any(
+            term in lower for term in ("commercial", "production", "permissive", "apache", "mit")
         ) else "",
         "size_preference": "small" if any(
             term in lower for term in ("small", "tiny", "prototype", "quick")
@@ -222,26 +313,43 @@ def parse_task(task: str, use_llm: bool = True) -> tuple[dict[str, Any], bool]:
 
 
 def generate_queries(task: str, profile: dict[str, Any]) -> list[str]:
-    ignored = {
-        *profile["languages"],
-        *_LANGUAGES.keys(),
-        "labels", "label", "classifier", "classification", "compact",
-        "corpus", "examples", "records",
-    }
-    terms = [term for term in profile["domain_keywords"] if term not in ignored]
     task_type = profile["task_type"]
-    queries = [
-        " ".join(terms[:3]),
-        " ".join(terms[:2]),
-        " ".join(terms[-1:] + [task_type]),
-        " ".join(terms[1:2] + profile["required_fields"][:1]),
+    task_aliases = _TASK_ALIASES.get(task_type, (task_type,))
+    terms = _domain_terms(profile)
+    primary_task = task_aliases[0]
+    compact_task = task_aliases[-1]
+    language_names = [
+        name for name, code in _LANGUAGES.items()
+        if code in profile["languages"] and name != "multilingual"
     ]
+    domain = terms[:2]
+    queries = []
+    if domain:
+        task_for_domain = primary_task if len(domain) + len(primary_task.split()) <= 3 else compact_task
+        queries.append(" ".join(domain + [task_for_domain]))
+        queries.append(" ".join([domain[0], compact_task]))
+    if language_names:
+        queries.append(" ".join([language_names[0], compact_task]))
+    if language_names and domain:
+        queries.append(" ".join([language_names[0], domain[0]]))
+    elif len(language_names) >= 2:
+        queries.append(" ".join(language_names[:2] + [compact_task]))
+    if domain and {"question", "answer"}.issubset(profile["required_fields"]):
+        queries.append(f"{domain[0]} question")
+    if task_type == "automatic speech recognition":
+        queries.append("speech transcription")
+        queries.append("librispeech")
+    if domain:
+        queries.append(" ".join(domain))
+    queries.append(primary_task)
+    if len(task_aliases) > 1:
+        queries.append(task_aliases[-1])
     cleaned = []
     for query in queries:
         normalized = re.sub(r"\s+", " ", query).strip()
         if normalized and normalized not in cleaned:
             cleaned.append(normalized)
-    return cleaned[:4] or [" ".join(_keywords(task)[:4])]
+    return cleaned[:5] or [" ".join(_keywords(task)[:4])]
 
 
 def _text_blob(dataset: dict[str, Any]) -> str:
@@ -261,8 +369,10 @@ def _pre_score(profile: dict[str, Any], dataset: dict[str, Any]) -> float:
     overlap = sum(1 for word in keywords if word in blob)
     modality_matches = sum(1 for value in profile["modalities"] if value in dataset.get("modalities", []))
     language_matches = sum(1 for value in profile["languages"] if value in dataset.get("languages", []))
-    popularity = math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 10)
-    return overlap * 8 + modality_matches * 12 + language_matches * 8 + popularity
+    task_terms = _TASK_ALIASES.get(profile["task_type"], (profile["task_type"],))
+    task_match = sum(1 for term in task_terms if term in blob)
+    popularity = min(2, math.log10(1 + dataset.get("downloads", 0) + dataset.get("likes", 0) * 10))
+    return overlap * 8 + task_match * 10 + modality_matches * 8 + language_matches * 8 + popularity
 
 
 def _contains_any(values: list[str], expected: list[str]) -> bool:
@@ -270,87 +380,167 @@ def _contains_any(values: list[str], expected: list[str]) -> bool:
     return any(item.lower() in lowered for item in expected)
 
 
+def _field_names(dataset: dict[str, Any]) -> set[str]:
+    names = {str(field).lower() for field in dataset.get("features", [])}
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                names.add(str(key).lower())
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value[:5]:
+                visit(nested)
+
+    for row in dataset.get("sample_rows", []):
+        visit(row)
+    return names
+
+
+def _sample_text(dataset: dict[str, Any]) -> str:
+    values: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value[:5]:
+                visit(nested)
+        elif isinstance(value, str):
+            values.append(value)
+
+    for row in dataset.get("sample_rows", []):
+        visit(row)
+    return " ".join(values).lower()
+
+
+def _infer_script_languages(text: str) -> list[str]:
+    if not text:
+        return []
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return []
+    ranges = {
+        "ar": lambda char: "\u0600" <= char <= "\u06ff",
+        "zh": lambda char: "\u4e00" <= char <= "\u9fff",
+        "ja": lambda char: "\u3040" <= char <= "\u30ff",
+        "ko": lambda char: "\uac00" <= char <= "\ud7af",
+    }
+    return [
+        language
+        for language, matcher in ranges.items()
+        if sum(1 for char in letters if matcher(char)) / len(letters) >= 0.05
+    ]
+
+
+def _matches_field(requirement: str, field: str) -> bool:
+    aliases = _FIELD_ALIASES.get(requirement, {requirement})
+    normalized = field.replace("-", "_").lower()
+    return normalized in aliases
+
+
 def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str, Any]:
     """Compute a transparent score entirely from collected evidence."""
     blob = _text_blob(dataset)
-    fields = [field.lower() for field in dataset.get("features", [])]
-    sample_fields = {
-        str(key).lower()
-        for row in dataset.get("sample_rows", [])
-        if isinstance(row, dict)
-        for key in row
-    }
-    available_fields = set(fields) | sample_fields
+    available_fields = _field_names(dataset)
     requested = {
-        word for word in profile["domain_keywords"]
+        word for word in _domain_terms(profile)
         if word not in {"english", "labels", "label", "compact", "classifier", "dataset", "data"}
     }
     matched_keywords = sorted(word for word in requested if word in blob)
+    domain_check = "pass" if not requested or matched_keywords else "review"
 
     lexical_match = min(22, round(22 * len(matched_keywords) / max(2, len(requested))))
     dataset_name = dataset.get("id", "").lower().replace("_", " ").replace("-", " ")
     task_type = profile["task_type"]
-    task_terms = {
-        "classification": ("classification", "intent", "classify"),
-        "intent classification": ("intent", "classification"),
-        "summarization": ("summarization", "summary"),
-        "translation": ("translation", "translate"),
-        "question answering": ("question answering", "qa"),
-        "retrieval": ("retrieval", "search"),
-    }.get(task_type, (task_type,))
-    task_match = 13 if any(term in dataset_name for term in task_terms) else 0
+    task_terms = _TASK_ALIASES.get(task_type, (task_type,))
+    task_match = 13 if any(term in blob for term in task_terms) else 0
     relevance = lexical_match + task_match
     modality_values = dataset.get("modalities", [])
     modality = 15 if _contains_any(modality_values, profile["modalities"]) else 0
     if not modality_values:
         modality = 7
-    language_values = dataset.get("languages", [])
-    language = 10 if not profile["languages"] or _contains_any(
-        language_values, profile["languages"]
-    ) else 0
-    if profile["languages"] and not language_values:
+    sample_text = _sample_text(dataset)
+    language_values = [str(value).lower() for value in dataset.get("languages", [])]
+    inferred_languages = _infer_script_languages(sample_text) if not language_values else []
+    language_evidence = language_values or inferred_languages
+    requested_languages = {
+        value for value in profile["languages"] if value != "multilingual"
+    }
+    declared_languages = set(language_evidence)
+    if not requested_languages:
+        language = 10
+        language_check = "pass"
+    elif not language_evidence:
         language = 4
+        language_check = "unknown"
+    elif requested_languages.issubset(declared_languages) or "multilingual" in declared_languages:
+        language = 10
+        language_check = "pass"
+    elif requested_languages & declared_languages:
+        language = 5
+        language_check = "review"
+    else:
+        language = 0
+        language_check = "fail"
 
     required_fields = profile["required_fields"]
-    direct_label_fields = sorted(
-        field for field in available_fields
-        if field in _DIRECT_LABEL_FIELDS
-        or any(token in field for token in ("intent", "label", "category", "class"))
-    )
     proxy_label_fields = sorted(field for field in available_fields if field in _PROXY_LABEL_FIELDS)
-    sample_text = " ".join(
-        str(value)
-        for row in dataset.get("sample_rows", [])
-        if isinstance(row, dict)
-        for value in row.values()
-    ).lower()
     embedded_label = bool(
         required_fields
         and ("output:" in sample_text or "intent categories" in sample_text)
     )
     matched_fields = []
+    matched_requirements = {
+        requirement: sorted(field for field in available_fields if _matches_field(requirement, field))
+        for requirement in required_fields
+    }
+    if (
+        {"source", "target"}.issubset(required_fields)
+        and "translation" in available_fields
+        and len(set(profile["languages"]) & available_fields) >= 2
+    ):
+        matched_requirements["source"] = ["translation"]
+        matched_requirements["target"] = ["translation"]
     schema_evidence = "not-required"
     if not required_fields:
         schema = 15
-    elif direct_label_fields:
+    elif all(matched_requirements.values()):
         schema = 15
-        matched_fields = direct_label_fields
+        matched_fields = sorted({
+            field for fields_for_requirement in matched_requirements.values()
+            for field in fields_for_requirement
+        })
         schema_evidence = "direct"
-    elif proxy_label_fields:
+    elif "label" in required_fields and proxy_label_fields and all(
+        matched_requirements[requirement] for requirement in required_fields if requirement != "label"
+    ):
         schema = 8
         matched_fields = proxy_label_fields
         schema_evidence = "proxy"
-    elif embedded_label:
+    elif "label" in required_fields and embedded_label and all(
+        matched_requirements[requirement] for requirement in required_fields if requirement != "label"
+    ):
         schema = 5
         matched_fields = ["embedded instruction output"]
         schema_evidence = "embedded"
     else:
-        schema = 0
+        matched_count = sum(bool(fields_for_requirement) for fields_for_requirement in matched_requirements.values())
+        schema = round(10 * matched_count / len(required_fields))
+        matched_fields = sorted({
+            field for fields_for_requirement in matched_requirements.values()
+            for field in fields_for_requirement
+        })
         schema_evidence = "missing" if available_fields else "unknown"
 
     license_value = dataset.get("license", "")
-    permissive = {"apache-2.0", "mit", "cc-by-4.0", "cc0-1.0", "odc-by"}
+    permissive = {"apache-2.0", "mit", "cc-by-4.0", "cc0-1.0", "odc-by", "bsd-3-clause"}
     license_score = 10 if license_value in permissive else 5 if license_value else 0
+    if profile["license"]:
+        license_check = "pass" if license_value in permissive else "unknown" if not license_value else "fail"
+    else:
+        license_check = "pass" if license_value in permissive else "unknown" if not license_value else "review"
     documentation = 5 if dataset.get("card_complete") else 2 if dataset.get("description") else 0
     num_examples = int(dataset.get("num_examples") or 0)
     if num_examples >= 10_000:
@@ -384,11 +574,12 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
 
     checks = {
         "modality": "pass" if modality == 15 else "unknown" if not modality_values else "fail",
-        "language": "pass" if language == 10 else "unknown" if not language_values else "fail",
+        "domain": domain_check,
+        "language": language_check,
         "required_fields": "pass" if schema_evidence in {"not-required", "direct"}
         else "review" if schema_evidence in {"proxy", "embedded"}
         else "unknown" if schema_evidence == "unknown" else "fail",
-        "license": "pass" if license_score == 10 else "unknown" if not license_value else "review",
+        "license": license_check,
         "sample_size": sample_size_check if num_examples else "unknown",
         "accessible": "pass" if accessibility == 5 else "fail",
     }
@@ -407,15 +598,26 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         rejection_reasons.append(
             f"Languages {language_values} do not match requested {profile['languages']}."
         )
+    if checks["license"] == "fail":
+        rejection_reasons.append(
+            f"License {license_value} does not meet the requested permissive/commercial constraint."
+        )
+    recommendation_checks = ["modality", "domain", "required_fields", "accessible"]
+    if profile["languages"]:
+        recommendation_checks.append("language")
+    if profile["license"]:
+        recommendation_checks.append("license")
     status = "rejected" if rejection_reasons else "recommended" if (
         total >= 70
         and schema_evidence in {"not-required", "direct"}
         and sample_size_check == "pass"
+        and all(checks[key] == "pass" for key in recommendation_checks)
     ) else "conditional"
     evidence = [
         f"Matched project terms: {', '.join(matched_keywords) or 'none verified'}",
         f"Modalities: {', '.join(modality_values) or 'not declared'}",
-        f"Languages: {', '.join(language_values) or 'not declared'}",
+        f"Languages: {', '.join(language_evidence) or 'not declared'}"
+        + (" (inferred from sample script)" if inferred_languages else ""),
         f"Features: {', '.join(sorted(available_fields)[:10]) or 'viewer schema unavailable'}",
         f"Target evidence: {schema_evidence}"
         + (f" ({', '.join(matched_fields)})" if matched_fields else ""),
@@ -430,6 +632,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
     weakness = rejection_reasons[0] if rejection_reasons else next(
         (
             label for key, label in (
+                ("domain", "The inspected metadata does not verify the requested subject domain."),
                 ("required_fields", "Required schema fields need manual confirmation."),
                 ("sample_size", "The inspected dataset is too small for reliable classifier training."),
                 ("license", "License needs manual review."),
@@ -492,6 +695,18 @@ def _cross_reference(datasets: list[dict[str, Any]]) -> list[dict[str, str]]:
     return pairs
 
 
+def _rank_key(profile: dict[str, Any], dataset: dict[str, Any]) -> tuple[int, int, int]:
+    checks = dataset["checks"]
+    evidence_fit = (
+        (2 if checks["required_fields"] == "pass" else 0)
+        + (1 if checks["domain"] == "pass" else 0)
+        + (2 if profile["languages"] and checks["language"] == "pass" else 0)
+        + (2 if profile["license"] and checks["license"] == "pass" else 0)
+    )
+    status_rank = {"recommended": 2, "conditional": 1, "rejected": 0}[dataset["status"]]
+    return status_rank, evidence_fit, dataset["score"]
+
+
 def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
     task = task.strip()
     if not task:
@@ -513,8 +728,10 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
     }
 
     collected: dict[str, dict[str, Any]] = {}
+    search_batches: list[list[str]] = []
     for query in queries:
-        found = search_datasets(query, limit=12)
+        found = search_datasets(query, limit=20)
+        search_batches.append([dataset["id"] for dataset in found])
         for dataset in found:
             current = collected.get(dataset["id"])
             if current is None or _pre_score(profile, dataset) > _pre_score(profile, current):
@@ -527,11 +744,30 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
             "message": f"Searched “{query}” and found {len(found)} candidates.",
         }
 
-    pre_ranked = sorted(
+    inspection_limit = max(max_datasets * 2, 16)
+    global_ranked = sorted(
         collected.values(),
         key=lambda dataset: _pre_score(profile, dataset),
         reverse=True,
-    )[:max_datasets]
+    )
+    diversified_ids: list[str] = []
+    diversified_seen: set[str] = set()
+    for position in range(5):
+        for batch in search_batches:
+            if position >= len(batch):
+                continue
+            dataset_id = batch[position]
+            if dataset_id not in diversified_seen:
+                diversified_seen.add(dataset_id)
+                diversified_ids.append(dataset_id)
+    for dataset in global_ranked:
+        if dataset["id"] not in diversified_seen:
+            diversified_ids.append(dataset["id"])
+    pre_ranked = [
+        collected[dataset_id]
+        for dataset_id in diversified_ids[:inspection_limit]
+        if dataset_id in collected
+    ]
     inspected: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(pre_ranked)))) as pool:
         futures = {
@@ -566,13 +802,10 @@ def weave_events(task: str, max_datasets: int = 8) -> Iterator[dict[str, Any]]:
 
     ranked = sorted(
         inspected,
-        key=lambda dataset: (
-            dataset["status"] == "recommended",
-            dataset["status"] == "conditional",
-            dataset["score"],
-        ),
+        key=lambda dataset: _rank_key(profile, dataset),
         reverse=True,
     )
+    ranked = ranked[:max_datasets]
     pairs = _cross_reference(ranked)
     nodes = [
         {
