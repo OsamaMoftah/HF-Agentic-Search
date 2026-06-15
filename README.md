@@ -13,6 +13,8 @@ tags:
   - track:backyard
   - sponsor:openai
   - achievement:offbrand
+models:
+  - HuggingFaceTB/SmolLM2-360M-Instruct
 ---
 
 # HF Agentic Search
@@ -42,9 +44,10 @@ The app performs a multi-step research loop:
 6. Rank candidates from evidence and connect potentially complementary datasets.
 7. Stream the trace and explain verified strengths, limitations, and rejection reasons.
 
-`Qwen/Qwen2.5-3B-Instruct` helps interpret the brief when Hugging Face Inference Providers are
-available. The model never supplies the numeric score. If inference is unavailable, the complete
-workflow continues with deterministic parsing and clearly labels the fallback.
+`HuggingFaceTB/SmolLM2-360M-Instruct` runs locally inside the Space CPU runtime and helps interpret
+the brief. At only 360M parameters, it is comfortably below the Tiny Titan 4B limit. The model
+never supplies the numeric score. If local model loading fails, the complete workflow continues
+with deterministic parsing and clearly labels the fallback.
 
 ## Evidence-based scoring
 
@@ -68,7 +71,7 @@ reasons.
 ## Architecture
 
 - **Agent:** Python, `huggingface_hub`, Hub API, and Dataset Viewer API
-- **Model:** Qwen2.5-3B-Instruct, under the Tiny Titan 4B limit
+- **Model:** SmolLM2-360M-Instruct, loaded locally on CPU
 - **Server:** Gradio `gr.Server` with FastAPI-compatible routes
 - **Streaming:** newline-delimited JSON events from `/weave/stream`
 - **Interface:** React, Vite, and an interactive PixiJS evidence map
@@ -89,11 +92,11 @@ npm ci
 npm run build
 cd ..
 
-HF_TOKEN=your_inference_enabled_token python app.py
+python app.py
 ```
 
-Open http://localhost:7860. `HF_TOKEN` is optional for public Hub search, but required to use the
-hosted planning model.
+Open http://localhost:7860. `HF_TOKEN` is optional and is used only for authenticated Hub access;
+the planning model runs locally.
 
 ## Test
 
@@ -108,8 +111,9 @@ cd frontend && npm run build
 - Search quality depends on dataset-card metadata supplied by authors.
 - A high score is a research recommendation, not permission to use a dataset; users must still
   verify license terms, consent, privacy, bias, and domain suitability.
-- Hosted model availability can vary. Deterministic fallback keeps search functional but may
-  interpret nuanced briefs less precisely.
+- The first request may take longer while the 360M planning model is downloaded and loaded.
+- Deterministic fallback keeps search functional if local model loading fails, but may interpret
+  nuanced briefs less precisely.
 - The in-memory session cache is intentionally lightweight and resets when the Space restarts.
 
 ## Build Small submission

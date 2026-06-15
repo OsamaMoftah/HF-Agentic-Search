@@ -83,6 +83,20 @@ class AgentTests(unittest.TestCase):
         self.assertIn("customer support", queries)
         self.assertTrue(all(len(query.split()) <= 3 for query in queries))
 
+    @patch(
+        "backend.agent._llm",
+        return_value='{"task_type":"compact","license":"gpl","domain_keywords":["support"]}',
+    )
+    def test_invalid_small_model_fields_do_not_corrupt_explicit_requirements(self, _mock_llm):
+        profile, used = parse_task(
+            "English customer support intent data with labels for a classifier",
+            use_llm=True,
+        )
+        self.assertTrue(used)
+        self.assertEqual(profile["task_type"], "classification")
+        self.assertEqual(profile["license"], "")
+        self.assertIn("label", profile["required_fields"])
+
     @patch("backend.agent._llm", return_value=None)
     def test_inference_failure_is_reported_as_fallback(self, _mock_llm):
         with patch("backend.agent.search_datasets", return_value=[]):
@@ -90,6 +104,11 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(result["fallback_used"])
         self.assertIsNone(result["model_used"])
         self.assertEqual(result["datasets"], [])
+
+    def test_declared_model_is_tiny_titan_eligible(self):
+        from backend.agent import MODEL
+
+        self.assertEqual(MODEL, "HuggingFaceTB/SmolLM2-360M-Instruct")
 
     @patch("backend.agent._llm", return_value=None)
     def test_stream_event_order_and_complete_result(self, _mock_llm):

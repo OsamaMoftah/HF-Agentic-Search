@@ -5,19 +5,20 @@ import json
 import math
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterator
 
-from huggingface_hub import InferenceClient
-
 from backend.search import inspect_dataset, search_datasets
 
-MODEL = os.getenv("WEAVER_MODEL", "Qwen/Qwen2.5-3B-Instruct")
-TOKEN = os.getenv("HF_TOKEN")
+MODEL = os.getenv("WEAVER_MODEL", "HuggingFaceTB/SmolLM2-360M-Instruct")
 MAX_TASK_LENGTH = 2000
 
-_client = None
+_local_model = None
+_local_tokenizer = None
+_model_load_failed = False
+_model_lock = threading.Lock()
 _WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{2,}")
 _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "your", "have",
@@ -37,23 +38,60 @@ _MODALITIES = {
     "text": ("text", "document", "summarization", "translation", "intent", "chat"),
 }
 _LABEL_TERMS = {"label", "labels", "class", "classes", "intent", "category", "target"}
+_TASK_TYPES = {
+    "intent classification", "classification", "summarization", "translation",
+    "question answering", "retrieval", "fine-tuning", "pretraining", "dataset discovery",
+}
 
 
 def _llm(system: str, user: str, max_tokens: int = 350, temperature: float = 0.2) -> str | None:
-    global _client
-    if _client is None:
+    """Run the planning step locally with a genuinely small model."""
+    global _local_model, _local_tokenizer, _model_load_failed
+    if _model_load_failed:
+        return None
+    if _local_model is None or _local_tokenizer is None:
         try:
-            _client = InferenceClient(token=TOKEN)
+            with _model_lock:
+                if _local_model is None or _local_tokenizer is None:
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+                    _local_tokenizer = AutoTokenizer.from_pretrained(MODEL)
+                    _local_model = AutoModelForCausalLM.from_pretrained(
+                        MODEL,
+                        low_cpu_mem_usage=True,
+                    )
+                    _local_model.eval()
         except Exception:
+            _model_load_failed = True
             return None
     try:
-        response = _client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_tokens=max_tokens,
-            temperature=temperature,
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        prompt = _local_tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
         )
-        return (response.choices[0].message.content or "").strip()
+        inputs = _local_tokenizer(prompt, return_tensors="pt")
+        generation_args = {
+            "max_new_tokens": min(max_tokens, 220),
+            "do_sample": temperature > 0,
+            "pad_token_id": _local_tokenizer.eos_token_id,
+        }
+        if temperature > 0:
+            generation_args["temperature"] = temperature
+        with _model_lock:
+            output = _local_model.generate(
+                **inputs,
+                **generation_args,
+            )
+        generated = output[0, inputs["input_ids"].shape[1]:]
+        return _local_tokenizer.decode(
+            generated,
+            skip_special_tokens=True,
+        )
     except Exception:
         return None
 
@@ -126,22 +164,55 @@ def parse_task(task: str, use_llm: bool = True) -> tuple[dict[str, Any], bool]:
     llm_used = False
     if use_llm:
         prompt = (
-            f"Project request:\n{task}\n\n"
-            "Return JSON only with keys languages (ISO codes), modalities, task_type, "
-            "required_fields, license, size_preference, and domain_keywords. Do not invent requirements."
+            f"Request: {task}\n"
+            "Return exactly one compact JSON object. Use at most 5 domain_keywords. "
+            "Use an empty string or empty list when a requirement is not explicit. "
+            'Schema: {"languages":[],"modalities":[],"task_type":"","required_fields":[],'
+            '"license":"","size_preference":"","domain_keywords":[]}'
         )
         parsed = _extract_json(_llm(
-            "You are a dataset research planner. Extract explicit requirements conservatively.",
+            "Extract only requirements explicitly stated. No prose. No repetition.",
             prompt,
+            max_tokens=120,
+            temperature=0,
         ))
         if parsed:
             llm_used = True
-            for key in profile:
-                value = parsed.get(key)
-                if isinstance(profile[key], list) and isinstance(value, list) and value:
-                    profile[key] = [str(item).lower() for item in value][:12]
-                elif isinstance(profile[key], str) and isinstance(value, str) and value.strip():
-                    profile[key] = value.strip()[:280]
+            proposed_languages = [
+                str(item).lower() for item in parsed.get("languages", [])
+                if isinstance(item, str)
+                and (len(item.strip()) in {2, 3} or item.lower() == "multilingual")
+            ]
+            proposed_modalities = [
+                str(item).lower() for item in parsed.get("modalities", [])
+                if str(item).lower() in _MODALITIES
+            ]
+            proposed_fields = [
+                str(item).lower() for item in parsed.get("required_fields", [])
+                if isinstance(item, str) and len(item) <= 30
+            ]
+            proposed_keywords = [
+                str(item).lower() for item in parsed.get("domain_keywords", [])
+                if isinstance(item, str) and 2 < len(item) <= 30
+            ]
+            profile["languages"] = list(dict.fromkeys(profile["languages"] + proposed_languages))
+            profile["modalities"] = list(dict.fromkeys(profile["modalities"] + proposed_modalities))
+            profile["required_fields"] = list(
+                dict.fromkeys(profile["required_fields"] + proposed_fields)
+            )
+            profile["domain_keywords"] = list(
+                dict.fromkeys(profile["domain_keywords"] + proposed_keywords)
+            )[:12]
+            proposed_task = str(parsed.get("task_type") or "").lower()
+            if profile["task_type"] == "dataset discovery" and proposed_task in _TASK_TYPES:
+                profile["task_type"] = proposed_task
+            proposed_license = str(parsed.get("license") or "").lower()
+            if profile["license"] == "" and proposed_license and proposed_license in lower:
+                profile["license"] = proposed_license
+            proposed_size = str(parsed.get("size_preference") or "").lower()
+            if profile["size_preference"] == "" and proposed_size in {"small", "medium", "large"}:
+                if proposed_size in lower:
+                    profile["size_preference"] = proposed_size
     return profile, llm_used
 
 
