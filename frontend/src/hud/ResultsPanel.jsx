@@ -7,6 +7,39 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
 };
 
+function DatasetOrbit() {
+  return (
+    <div className="dataset-orbit" aria-label="Agent searches, inspects and ranks Hugging Face datasets">
+      <div className="orbit-copy">
+        <strong>Agent loop</strong>
+        <span>Search the Hub, inspect dataset evidence, then rank what actually fits.</span>
+      </div>
+      <div className="orbit-stage" aria-hidden="true">
+        <span className="orbit-ring ring-one" />
+        <span className="orbit-ring ring-two" />
+        <span className="hf-face">🤗</span>
+        <span className="data-card data-card-a">
+          <i />
+          <b />
+          <b />
+        </span>
+        <span className="data-card data-card-b">
+          <i />
+          <b />
+          <b />
+        </span>
+        <span className="data-card data-card-c">
+          <i />
+          <b />
+          <b />
+        </span>
+        <span className="trace-dot trace-dot-a" />
+        <span className="trace-dot trace-dot-b" />
+      </div>
+    </div>
+  );
+}
+
 export default function ResultsPanel() {
   const { state, selectDataset, thinking } = useGame();
   const datasets = state.datasets || [];
@@ -20,6 +53,8 @@ export default function ResultsPanel() {
         </div>
         <span>{datasets.length}</span>
       </div>
+
+      <DatasetOrbit />
 
       {!datasets.length ? (
         <div className="empty-results">
