@@ -464,8 +464,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible {
   cursor: pointer;
   text-align: left;
 }
-.result-row:hover, .result-row.selected { background: var(--surface-blue); }
-.result-row.selected { box-shadow: inset 4px 0 0 var(--forest); }
+.result-row:hover { background: var(--surface-blue); }
 .result-rank { color: var(--ink-soft); font: 10px var(--font-mono); }
 .result-main { min-width: 0; }
 .result-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }

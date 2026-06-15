@@ -8,7 +8,7 @@ const STATUS_LABELS = {
 };
 
 export default function ResultsPanel() {
-  const { state, selected, selectDataset, thinking } = useGame();
+  const { state, selectDataset, thinking } = useGame();
   const datasets = state.datasets || [];
 
   return (
@@ -32,7 +32,7 @@ export default function ResultsPanel() {
             <button
               type="button"
               key={dataset.id}
-              className={`result-row status-${dataset.status} ${selected?.id === dataset.id ? 'selected' : ''}`}
+              className={`result-row status-${dataset.status}`}
               onClick={() => selectDataset(dataset)}
             >
               <span className="result-rank">{String(index + 1).padStart(2, '0')}</span>
