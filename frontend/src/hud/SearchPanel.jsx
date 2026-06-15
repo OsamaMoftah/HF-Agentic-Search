@@ -21,7 +21,7 @@ export default function SearchPanel({ onSubmitted }) {
   return (
     <section className="search-section">
       <span className="section-index">01 / PROJECT BRIEF</span>
-      <h1>Find data that actually fits the work.</h1>
+      <h2>Find data that actually fits the work.</h2>
       <p className="lede">
         Describe the project. The agent plans searches, inspects schemas and samples,
         checks constraints, and explains what it can verify.

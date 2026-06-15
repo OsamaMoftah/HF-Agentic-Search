@@ -32,14 +32,15 @@ export default function Canvas() {
     <div className="canvas-host" ref={hostRef}>
       {!state.nodes?.length ? (
         <div className="canvas-empty">
-          <div className="empty-weave" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
+          <div className="workflow-preview" aria-hidden="true">
+            <div><span>01</span><strong>Search</strong><small>Multiple Hub queries</small></div>
+            <i />
+            <div><span>02</span><strong>Test</strong><small>Schema and sample checks</small></div>
+            <i />
+            <div><span>03</span><strong>Explain</strong><small>Documented evidence</small></div>
           </div>
-          <strong>One brief. Multiple searches. Visible evidence.</strong>
-          <p>The map will connect candidates whose coverage can complement each other.</p>
+          <strong>Every candidate must earn its place.</strong>
+          <p>The agent searches broadly, then narrows the field by checking the actual dataset, not just its title.</p>
         </div>
       ) : null}
     </div>

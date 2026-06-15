@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameProvider, useGame } from './GameProvider.jsx';
-import Canvas from './components/Canvas.jsx';
+import ResearchWorkspace from './components/ResearchWorkspace.jsx';
 import SearchPanel from './hud/SearchPanel.jsx';
 import ResultsPanel from './hud/ResultsPanel.jsx';
 import DetailCard from './hud/DetailCard.jsx';
@@ -15,7 +15,6 @@ function Workspace() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="HF Agentic Search home">
-          <span className="brand-mark" aria-hidden="true">HFA</span>
           <span>HF Agentic Search</span>
         </a>
         <div className="topbar-meta">
@@ -25,6 +24,22 @@ function Workspace() {
           </span>
         </div>
       </header>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="section-index">Agentic dataset research</span>
+          <h1>A new way to search for datasets.</h1>
+          <p>
+            An agent searches the Hub, finds relevant datasets, tests them against your
+            project, and leaves an honest, documented trace of every decision.
+          </p>
+        </div>
+        <div className="hero-principles" aria-label="Product principles">
+          <div><strong>Search wider</strong><span>Several focused queries, not one keyword lookup.</span></div>
+          <div><strong>Test the fit</strong><span>Schemas, samples, language, license and access.</span></div>
+          <div><strong>Show the work</strong><span>Visible evidence for recommendations and rejections.</span></div>
+        </div>
+      </section>
 
       <nav className="mobile-tabs" aria-label="Workspace views">
         {['search', 'map', 'results'].map((tab) => (
@@ -46,18 +61,15 @@ function Workspace() {
         </aside>
 
         <main className={`map-stage ${mobileTab === 'map' ? 'mobile-active' : ''}`}>
-          <div className="map-heading">
-            <div>
-              <span className="section-index">02 / EVIDENCE MAP</span>
-              <h2>{hasResults ? 'Candidates, connected' : 'Search the Hub with a research agent'}</h2>
-            </div>
+          <div className="workspace-heading">
+            <span className="section-index">02 / AGENT WORKSPACE</span>
             {state.fallback_used ? (
               <span className="mode-note">Deterministic fallback</span>
             ) : state.model_used ? (
               <span className="mode-note">Planned with {state.model_used.split('/').pop()}</span>
             ) : null}
           </div>
-          <Canvas />
+          <ResearchWorkspace />
         </main>
 
         <aside className={`rail rail-right ${mobileTab === 'results' ? 'mobile-active' : ''}`}>
