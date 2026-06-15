@@ -31,7 +31,7 @@ actually support the model or evaluation they are trying to ship.
 - **Working staging Space:** https://huggingface.co/spaces/sammoftah/HF-Agentic-Search
 - **Source:** https://github.com/OsamaMoftah/HF-Agentic-Search
 - **Demo video:** `PENDING: add a public demo-video URL before final validation`
-- **Social post:** `PENDING: add the public social-media post URL before final validation`
+- **Social post:** https://x.com/osamaamoftah/status/2066649988675797282?s=20
 - **Team usernames:** `sammoftah`
 
 ## Why it is agentic
@@ -141,7 +141,8 @@ Submission readiness:
 - YAML tags are present: `track:backyard`, `sponsor:openai`, `achievement:offbrand`.
 - The model is `HuggingFaceTB/SmolLM2-360M-Instruct` at 360M parameters, well below the 32B limit.
 - Team username is listed above.
-- Demo video and social-post URLs are the remaining fields to replace before the final validator run.
+- Social-post URL is linked above.
+- Demo video URL is the remaining field to replace before the final validator run.
 
 Built, tested, deployed, and prepared for submission with OpenAI Codex. Codex-attributed commits
 are available in the linked public GitHub repository.
