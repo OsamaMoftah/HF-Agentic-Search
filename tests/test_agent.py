@@ -117,6 +117,52 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(proxy["schema_evidence"], "proxy")
         self.assertGreater(direct["score"], proxy["score"])
 
+    def test_off_domain_dataset_is_rejected_even_with_good_schema(self):
+        profile, _ = parse_task(
+            "Climate science question-answer pairs for retrieval",
+            use_llm=False,
+        )
+        climate = score_dataset(
+            profile,
+            dataset(
+                id="example/climate-qa",
+                description="Climate science question-answer pairs.",
+                features=["question", "answer"],
+                sample_rows=[{"question": "What is methane?", "answer": "A greenhouse gas."}],
+            ),
+        )
+        generic = score_dataset(
+            profile,
+            dataset(
+                id="example/general-qa",
+                description="General question-answer pairs for retrieval.",
+                features=["question", "answer"],
+                sample_rows=[{"question": "What is a router?", "answer": "A networking device."}],
+                num_examples=50_000,
+            ),
+        )
+        self.assertEqual(climate["checks"]["domain"], "pass")
+        self.assertEqual(generic["checks"]["domain"], "fail")
+        self.assertEqual(generic["status"], "rejected")
+        self.assertGreater(climate["score"], generic["score"])
+
+    def test_sample_rows_can_prove_domain_when_card_is_sparse(self):
+        profile, _ = parse_task(
+            "Climate science question-answer pairs for retrieval",
+            use_llm=False,
+        )
+        sparse = score_dataset(
+            profile,
+            dataset(
+                id="example/qa-pairs",
+                description="Question-answer pairs.",
+                features=["question", "answer"],
+                sample_rows=[{"question": "How does climate change affect oceans?", "answer": "It warms and acidifies them."}],
+            ),
+        )
+        self.assertEqual(sparse["checks"]["domain"], "pass")
+        self.assertIn("climate", sparse["evidence"][0])
+
     def test_tiny_classifier_dataset_is_not_the_top_recommendation(self):
         profile, _ = parse_task(
             "English customer support intent data with labels for a classifier",

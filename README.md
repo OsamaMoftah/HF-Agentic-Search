@@ -29,8 +29,9 @@ about what it could verify and what still requires human review.
 - **Submission Space:** https://huggingface.co/spaces/build-small-hackathon/HF-Agentic-Search
 - **Working staging Space:** https://huggingface.co/spaces/sammoftah/HF-Agentic-Search
 - **Source:** https://github.com/OsamaMoftah/HF-Agentic-Search
-- **Demo video:** `TODO: replace with the public demo-video URL before final validation`
-- **Social post:** `TODO: replace with the public social-post URL before final validation`
+- **Demo video:** `TODO: add a public demo-video URL before final validation`
+- **Social post:** `TODO: add the public social-media post URL before final validation`
+- **Team usernames:** `sammoftah`
 
 ## Why it is agentic
 
@@ -74,7 +75,7 @@ reasons.
 - **Model:** SmolLM2-360M-Instruct, loaded locally on CPU
 - **Server:** Gradio `gr.Server` with FastAPI-compatible routes
 - **Streaming:** newline-delimited JSON events from `/weave/stream`
-- **Interface:** React, Vite, and an interactive PixiJS evidence map
+- **Interface:** React, Vite, and a custom decision board for inspected candidates
 
 The compatibility endpoint `POST /weave` returns one final JSON document. The primary interface
 uses `POST /weave/stream` and receives `started`, `plan`, `search`, `inspect`, `candidate`,
@@ -101,7 +102,7 @@ the planning model runs locally.
 ## Test
 
 ```bash
-python -m unittest discover -s tests -v
+PYTHONPATH="$PWD" python3 -m pytest -q tests/test_agent.py
 cd frontend && npm run build
 ```
 
@@ -121,6 +122,14 @@ cd frontend && npm run build
 Submitted to the **Backyard AI** track and targeting **Best Agent**, **Tiny Titan**, and
 **Off Brand**. The custom interface is served through Gradio rather than default Gradio
 components.
+
+Final README checklist from the hackathon email:
+
+- Tags are present in the YAML block: `track:backyard`, `sponsor:openai`, `achievement:offbrand`.
+- The app runs as a Gradio Space inside `build-small-hackathon`.
+- The declared model is `HuggingFaceTB/SmolLM2-360M-Instruct` at 360M parameters, below the 32B limit.
+- Team username is listed above.
+- Demo video and social-post URLs must be replaced with real public links before running the final validator.
 
 This project was designed, implemented, tested, and prepared for deployment with OpenAI Codex.
 Codex-attributed commits are available in the linked public GitHub repository.

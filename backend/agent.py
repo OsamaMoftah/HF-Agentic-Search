@@ -444,24 +444,24 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
     """Compute a transparent score entirely from collected evidence."""
     blob = _text_blob(dataset)
     available_fields = _field_names(dataset)
+    sample_text = _sample_text(dataset)
+    evidence_blob = f"{blob} {sample_text}"
     requested = {
         word for word in _domain_terms(profile)
         if word not in {"english", "labels", "label", "compact", "classifier", "dataset", "data"}
     }
-    matched_keywords = sorted(word for word in requested if word in blob)
-    domain_check = "pass" if not requested or matched_keywords else "review"
+    matched_keywords = sorted(word for word in requested if word in evidence_blob)
+    domain_check = "pass" if not requested or matched_keywords else "fail"
 
     lexical_match = min(22, round(22 * len(matched_keywords) / max(2, len(requested))))
-    dataset_name = dataset.get("id", "").lower().replace("_", " ").replace("-", " ")
     task_type = profile["task_type"]
     task_terms = _TASK_ALIASES.get(task_type, (task_type,))
-    task_match = 13 if any(term in blob for term in task_terms) else 0
+    task_match = 13 if any(term in evidence_blob for term in task_terms) else 0
     relevance = lexical_match + task_match
     modality_values = dataset.get("modalities", [])
     modality = 15 if _contains_any(modality_values, profile["modalities"]) else 0
     if not modality_values:
         modality = 7
-    sample_text = _sample_text(dataset)
     language_values = [str(value).lower() for value in dataset.get("languages", [])]
     inferred_languages = _infer_script_languages(sample_text) if not language_values else []
     language_evidence = language_values or inferred_languages
@@ -565,11 +565,12 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         elif num_examples < 500:
             sample_size_adjustment = -4
             sample_size_check = "review"
+    domain_penalty = -18 if requested and not matched_keywords else 0
     accessibility = 5 if dataset.get("accessible") and not dataset.get("gated") else 0
     total = max(
         0,
         relevance + modality + language + schema + license_score
-        + documentation + popularity + accessibility + sample_size_adjustment,
+        + documentation + popularity + accessibility + sample_size_adjustment + domain_penalty,
     )
 
     checks = {
@@ -589,6 +590,11 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
     if checks["modality"] == "fail":
         rejection_reasons.append(
             f"Modality {modality_values} does not match requested {profile['modalities']}."
+        )
+    if checks["domain"] == "fail":
+        rejection_reasons.append(
+            "No inspected card, schema, or sample evidence matched the requested subject terms "
+            f"({', '.join(sorted(requested))})."
         )
     if checks["required_fields"] == "fail":
         rejection_reasons.append(
@@ -665,6 +671,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
             "documentation": documentation,
             "adoption": popularity,
             "sample_size_adjustment": sample_size_adjustment,
+            "domain_penalty": domain_penalty,
             "accessibility": accessibility,
         },
         "checks": checks,

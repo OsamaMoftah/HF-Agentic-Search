@@ -30,8 +30,10 @@ function Workspace() {
           <span className="section-index">Agentic dataset research</span>
           <h1>A new way to search for datasets.</h1>
           <p>
-            An agent searches the Hub, finds relevant datasets, tests them against your
-            project, and leaves an honest, documented trace of every decision.
+            Describe the model or evaluation you want to build. The agent turns that brief
+            into testable data requirements, searches the Hub from several angles, inspects
+            schemas and samples, then shows ML engineers exactly why each dataset is useful,
+            risky, or out of scope.
           </p>
         </div>
         <div className="hero-principles" aria-label="Product principles">
