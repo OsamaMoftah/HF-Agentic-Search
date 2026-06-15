@@ -6,12 +6,12 @@ const LANES = [
     key: 'best',
     title: 'Best fits',
     description: 'Ready for a first experiment',
-    filter: (dataset) => dataset.status === 'recommended' && !dataset.badges?.includes('hidden_gem'),
+    filter: (dataset) => dataset.status === 'recommended',
   },
   {
     key: 'hidden',
     title: 'Hidden gems',
-    description: 'Lower adoption, strong evidence fit',
+    description: 'Low adoption, still worth opening',
     filter: (dataset) => dataset.badges?.includes('hidden_gem'),
   },
   {
@@ -37,6 +37,7 @@ function shortName(id) {
 function mainGap(dataset) {
   if (dataset.status === 'recommended') return 'All critical evidence checks passed.';
   if (dataset.rejection_reasons?.length) return dataset.rejection_reasons[0];
+  if (dataset.review_reasons?.length) return dataset.review_reasons[0];
   return dataset.weakness || 'Review the remaining evidence gaps before using it.';
 }
 

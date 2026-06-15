@@ -88,7 +88,8 @@ class AgentTests(unittest.TestCase):
             ),
         )
         self.assertEqual(misleading["checks"]["required_fields"], "fail")
-        self.assertEqual(misleading["status"], "rejected")
+        self.assertEqual(misleading["status"], "conditional")
+        self.assertTrue(misleading["review_reasons"])
 
     def test_direct_intent_schema_beats_proxy_ticket_routing(self):
         profile, _ = parse_task(
@@ -117,7 +118,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(proxy["schema_evidence"], "proxy")
         self.assertGreater(direct["score"], proxy["score"])
 
-    def test_off_domain_dataset_is_rejected_even_with_good_schema(self):
+    def test_off_domain_dataset_is_reviewed_even_with_good_schema(self):
         profile, _ = parse_task(
             "Climate science question-answer pairs for retrieval",
             use_llm=False,
@@ -143,7 +144,8 @@ class AgentTests(unittest.TestCase):
         )
         self.assertEqual(climate["checks"]["domain"], "pass")
         self.assertEqual(generic["checks"]["domain"], "fail")
-        self.assertEqual(generic["status"], "rejected")
+        self.assertEqual(generic["status"], "conditional")
+        self.assertTrue(generic["review_reasons"])
         self.assertGreater(climate["score"], generic["score"])
 
     def test_sample_rows_can_prove_domain_when_card_is_sparse(self):

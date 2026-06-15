@@ -717,6 +717,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         "accessible": "pass" if accessibility == 5 else "fail",
     }
     rejection_reasons = []
+    review_reasons = []
     if checks["accessible"] == "fail":
         rejection_reasons.append("Dataset could not be inspected or is gated/private.")
     if checks["modality"] == "fail":
@@ -724,12 +725,12 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
             f"Modality {modality_values} does not match requested {profile['modalities']}."
         )
     if checks["domain"] == "fail":
-        rejection_reasons.append(
+        review_reasons.append(
             "No inspected card, schema, or sample evidence matched the requested subject terms "
             f"({', '.join(sorted(requested))})."
         )
     if checks["required_fields"] == "fail":
-        rejection_reasons.append(
+        review_reasons.append(
             f"Required fields {required_fields} were not found in the inspected schema."
         )
     if checks["language"] == "fail":
@@ -745,11 +746,19 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         recommendation_checks.append("language")
     if profile["license"]:
         recommendation_checks.append("license")
+    verified_core = (
+        checks["accessible"] == "pass"
+        and checks["modality"] != "fail"
+        and checks["domain"] == "pass"
+        and checks["required_fields"] in {"pass", "review"}
+        and (not profile["languages"] or checks["language"] in {"pass", "review", "unknown"})
+        and (not profile["license"] or checks["license"] == "pass")
+    )
     status = "rejected" if rejection_reasons else "recommended" if (
-        total >= 70
+        total >= 62
+        and verified_core
         and schema_evidence in {"not-required", "direct"}
         and sample_size_check == "pass"
-        and all(checks[key] == "pass" for key in recommendation_checks)
     ) else "conditional"
     evidence = [
         f"Matched project terms: {', '.join(matched_keywords) or 'none verified'}",
@@ -767,7 +776,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         + (f" and fields {', '.join(matched_fields)}" if matched_fields else "")
         + "."
     )
-    weakness = rejection_reasons[0] if rejection_reasons else next(
+    weakness = (rejection_reasons or review_reasons or [None])[0] or next(
         (
             label for key, label in (
                 ("domain", "The inspected metadata does not verify the requested subject domain."),
@@ -826,6 +835,7 @@ def score_dataset(profile: dict[str, Any], dataset: dict[str, Any]) -> dict[str,
         "schema_evidence": schema_evidence,
         "evidence": evidence,
         "rejection_reasons": rejection_reasons,
+        "review_reasons": review_reasons,
         "strength": strength,
         "weakness": weakness,
         "recommendation": recommendation,
@@ -1179,7 +1189,7 @@ def _public_dataset(dataset: dict[str, Any]) -> dict[str, Any]:
         "modalities", "configs", "splits", "features", "sample_rows", "hub_url",
         "accessible", "inspection_error", "card_complete", "num_examples", "score", "relevance",
         "quality", "status", "score_breakdown", "checks", "evidence",
-        "schema_evidence", "rejection_reasons", "strength", "weakness", "recommendation",
+        "schema_evidence", "rejection_reasons", "review_reasons", "strength", "weakness", "recommendation",
         "sample_tests", "sample_test_summary", "badges", "discovery_note", "loader_snippet",
     }
     return {key: value for key, value in dataset.items() if key in allowed}
