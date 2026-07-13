@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 import uuid
+from collections import OrderedDict
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
@@ -15,6 +16,7 @@ if _ROOT not in sys.path:
 
 import gradio as gr
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -22,8 +24,17 @@ from backend.agent import MAX_TASK_LENGTH, weave, weave_events
 
 app = gr.Server()
 _DIST = os.path.join(_ROOT, "frontend", "dist")
-_sessions: dict[str, dict] = {}
+_MAX_SESSIONS = 200
+_sessions: "OrderedDict[str, dict]" = OrderedDict()
 _lock = threading.Lock()
+
+
+def _store_session(sid: str, result: dict) -> None:
+    with _lock:
+        _sessions[sid] = result
+        _sessions.move_to_end(sid)
+        while len(_sessions) > _MAX_SESSIONS:
+            _sessions.popitem(last=False)
 
 
 def _session_id(request: Request) -> str:
@@ -54,11 +65,10 @@ async def api_weave(request: Request):
         return error
     sid = _session_id(request)
     try:
-        result = weave(task or "")
+        result = await run_in_threadpool(weave, task or "")
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
-    with _lock:
-        _sessions[sid] = result
+    _store_session(sid, result)
     return JSONResponse(result, headers={"X-Session-Id": sid})
 
 
@@ -73,8 +83,7 @@ async def api_weave_stream(request: Request):
         try:
             for event in weave_events(task or ""):
                 if event["type"] == "complete":
-                    with _lock:
-                        _sessions[sid] = event["result"]
+                    _store_session(sid, event["result"])
                 yield json.dumps(event, ensure_ascii=True) + "\n"
         except Exception as exc:
             yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
