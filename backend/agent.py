@@ -84,6 +84,7 @@ _FIELD_ALIASES = {
         "target_text", "output_text",
     },
     "audio": {"audio", "speech", "file", "path", "audio_path", "audio_file"},
+    "image": {"image", "img", "photo", "picture", "image_path", "file_name"},
     "transcript": {
         "transcript", "transcription", "sentence", "text",
         "transcript_text", "transcription_text", "label",
@@ -211,10 +212,15 @@ def _task_type(lower: str) -> str:
     return "dataset discovery"
 
 
-def _default_required_fields(task_type: str) -> list[str]:
+def _default_required_fields(task_type: str, modalities: list[str] | None = None) -> list[str]:
+    modalities = modalities or ["text"]
+    if task_type in {"intent classification", "classification"}:
+        if "image" in modalities:
+            return ["image", "label"]
+        if "audio" in modalities:
+            return ["audio", "label"]
+        return ["text", "label"]
     return {
-        "intent classification": ["text", "label"],
-        "classification": ["text", "label"],
         "summarization": ["document", "summary"],
         "translation": ["source", "target"],
         "question answering": ["question", "answer"],
@@ -234,7 +240,7 @@ def parse_task(task: str, use_llm: bool = True) -> tuple[dict[str, Any], bool]:
     if not modalities:
         modalities = ["text"]
     task_type = _task_type(lower)
-    required_fields = _default_required_fields(task_type)
+    required_fields = _default_required_fields(task_type, modalities)
     word_set = set(_keywords(task))
     if task_type not in {"translation", "summarization", "question answering"}:
         if word_set & _LABEL_TERMS:

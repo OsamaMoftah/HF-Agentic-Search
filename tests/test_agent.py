@@ -226,6 +226,33 @@ class AgentTests(unittest.TestCase):
         self.assertIn("intent dataset", queries)
         self.assertTrue(all(len(query.split()) <= 4 for query in queries))
 
+    def test_image_classification_requires_image_field_not_text(self):
+        profile, _ = parse_task(
+            "images of cats and dogs for classification",
+            use_llm=False,
+        )
+        self.assertEqual(profile["required_fields"], ["image", "label"])
+        good = score_dataset(
+            profile,
+            dataset(
+                id="example/cats-dogs",
+                description="Images of cats and dogs for image classification.",
+                modalities=["image"],
+                features=["image", "label"],
+                sample_rows=[{"image": "img0.jpg", "label": "cat"}],
+                num_examples=25000,
+            ),
+        )
+        self.assertEqual(good["checks"]["required_fields"], "pass")
+        self.assertEqual(good["schema_evidence"], "direct")
+
+    def test_audio_classification_requires_audio_field_not_text(self):
+        profile, _ = parse_task(
+            "audio recordings of speakers for classification",
+            use_llm=False,
+        )
+        self.assertEqual(profile["required_fields"], ["audio", "label"])
+
     def test_task_specific_profiles_and_queries(self):
         summary, _ = parse_task(
             "Arabic legal documents for abstractive summarization with a permissive license",

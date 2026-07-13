@@ -22,6 +22,27 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(state.status_code, 200)
         self.assertTrue(state.headers["X-Session-Id"].startswith("dw-"))
 
+    def test_weave_runs_off_the_event_loop(self):
+        with patch("app.weave", return_value={
+            "task": "test", "datasets": [], "nodes": [], "threads": [],
+            "top_pick": None, "fallback_used": True,
+        }) as mock_weave:
+            response = self.client.post("/weave", json={"task": "test"})
+        self.assertEqual(response.status_code, 200)
+        mock_weave.assert_called_once_with("test")
+
+    def test_session_cache_is_bounded(self):
+        app_module._MAX_SESSIONS = 3
+        try:
+            for index in range(5):
+                app_module._store_session(f"sid-{index}", {"task": str(index)})
+            self.assertLessEqual(len(app_module._sessions), 3)
+            self.assertNotIn("sid-0", app_module._sessions)
+            self.assertIn("sid-4", app_module._sessions)
+        finally:
+            app_module._sessions.clear()
+            app_module._MAX_SESSIONS = 200
+
     def test_stream_is_ndjson_and_saves_complete_state(self):
         result = {
             "task": "test",
